@@ -1,0 +1,4 @@
+#!/bin/bash
+g++ -O3 -march=native -o builds/sense main.cpp
+echo "built"
+./builds/sense

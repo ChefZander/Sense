@@ -1,0 +1,1 @@
+cutechess-cli -engine cmd=builds/sense name=engine_dev proto=uci -engine cmd=builds/v6 name=engine_base proto=uci -each tc=8+0.08 -games 2 -rounds 1000000 -repeat -concurrency 6 -recover -sprt elo0=0 elo1=10 alpha=0.05 beta=0.10 -openings file=sprt/UHO_Lichess_4852_v1.epd format=epd order=random
