@@ -211,7 +211,14 @@ int evaluate(const chess::Board board, int depth) {
     return score;
 }
 
-int qsearch(Board board, int depth_real, int alpha, int beta) {
+int qsearch(Board board, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+
+    if (elapsed_ms >= max_time) {
+        return 0; // doesnt matter because the results get discarded anyway
+    }
+
     int standPat = evaluate(board, depth_real); 
 
     if (standPat >= beta) {
@@ -242,7 +249,7 @@ int qsearch(Board board, int depth_real, int alpha, int beta) {
         board.makeMove(move);
         nodes++;
 
-        int score = -qsearch(board, depth_real+1, -beta, -alpha);
+        int score = -qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
 
         board.unmakeMove(move);
 
@@ -258,7 +265,7 @@ int qsearch(Board board, int depth_real, int alpha, int beta) {
 
 int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
     if (depth <= 0) {
-        return qsearch(board, depth_real+1, -beta, -alpha);
+        return qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
     }
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
