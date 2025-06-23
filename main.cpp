@@ -154,22 +154,18 @@ std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const che
     return sorted_moves;
 }
 
-// TT
-enum NodeType { EXACT, ALPHA, BETA };
-
 struct TranspositionTableEntry {
     uint64_t hash_key;
-    int score;
+    Move* bestmove;
     int depth;
-    NodeType type;
 
-    TranspositionTableEntry() : hash_key(0), score(0), depth(0), type(EXACT) {}
+    TranspositionTableEntry() : hash_key(0), depth(0) {}
 };
 
 const int TT_SIZE = /*size mb: */16 * 1024 * 1024 / sizeof(TranspositionTableEntry);
 TranspositionTableEntry transposition_table[TT_SIZE];
 
-void store_entry(uint64_t hash_key, int score, int depth, NodeType type) {
+void store_entry(uint64_t hash_key, int score, int depth, Move* bestmove) {
     int index = hash_key % TT_SIZE;
     TranspositionTableEntry& entry = transposition_table[index];
 
@@ -178,41 +174,21 @@ void store_entry(uint64_t hash_key, int score, int depth, NodeType type) {
     // If depth is used (e.g., in a search, a higher depth means more reliable), then:
     if (depth >= entry.depth && entry.hash_key != hash_key) { // Replace if new is deeper or it's a new entry
         entry.hash_key = hash_key;
-        entry.score = score;
         entry.depth = depth;
-        entry.type = type;
+        entry.bestmove = bestmove;
     }
 }
 
 // A simple material-based evaluation.
 // Positive score means good for the current side to move.
 int evaluate(const chess::Board board, int depth) {
-    uint64_t current_hash = board.hash(); // Use your board's hash() method directly!
-
-    if(use_tt) {
-        int index = current_hash % TT_SIZE;
-        TranspositionTableEntry& entry = transposition_table[index];
-    
-        if (entry.hash_key == current_hash) {
-            //std::cout << "Hash hit at " << depth << " hash depth " << entry.depth << std::endl; 
-            return entry.score;
-        }
-    }
-
     int score = 0;
-
     // HCE Filters
     score += hce_pieces(board);
 
     if (board.sideToMove() == chess::Color::BLACK) {
         score = -score;
     }
-
-    if(use_tt) {
-        store_entry(current_hash, score, depth, EXACT);
-    }
-    //std::cout << "New entry at " << depth << " with score " << score << std::endl; 
-
     return score;
 }
 
