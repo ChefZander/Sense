@@ -156,16 +156,16 @@ std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const che
 
 struct TranspositionTableEntry {
     uint64_t hash_key;
-    Move* bestmove;
+    Move bestmove;
     int depth;
 
-    TranspositionTableEntry() : hash_key(0), depth(0) {}
+    TranspositionTableEntry() : hash_key(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
 const int TT_SIZE = /*size mb: */16 * 1024 * 1024 / sizeof(TranspositionTableEntry);
-TranspositionTableEntry transposition_table[TT_SIZE];
+std::vector<TranspositionTableEntry> transposition_table;
 
-void store_entry(uint64_t hash_key, int score, int depth, Move* bestmove) {
+void store_entry(uint64_t hash_key, int depth, Move bestmove) {
     int index = hash_key % TT_SIZE;
     TranspositionTableEntry& entry = transposition_table[index];
 
@@ -255,29 +255,59 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
         return 0; // Stalemate
     }
 
+    int maxScore = -INFINITY;
+    Move thisBestMove = Move::NO_MOVE;
+
     // move sorting
+    uint64_t zobrist = board.hash();
+    TranspositionTableEntry entry = transposition_table[zobrist % TT_SIZE];
+    Move bestmove = entry.bestmove;
+    if(entry.depth >= depth_real) {
+        board.makeMove(bestmove);
+        nodes++;
+
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha);
+
+        board.unmakeMove(bestmove);
+
+        if (score >= maxScore) {
+            maxScore = score;
+            thisBestMove = bestmove;
+        }
+
+        alpha = std::max(alpha, score);
+    }
+
     std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
 
-    int maxScore = -INFINITY;
-
     for (const auto& move : moves) {
+        // skip the move tt already did
+        if(move == bestmove) {
+            continue;
+        }
+
         board.makeMove(move);
         nodes++;
 
-        int nextDepth = depth - 1;
-        
-        int score = -negamax(board, nextDepth, depth_real + 1, -beta, -alpha);
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha);
 
         board.unmakeMove(move);
 
         if (score >= maxScore) {
             maxScore = score;
+            thisBestMove = move;
         }
 
         alpha = std::max(alpha, score);
         if (alpha >= beta) {
-            break; // Beta cutoff
+            break;
         }
+    }
+
+    // add tt entry for current move
+
+    if(entry.depth <= depth_real) {
+        store_entry(zobrist, depth_real, thisBestMove);
     }
     return maxScore;
 }
@@ -325,8 +355,6 @@ void handleGo(std::istringstream& ss) {
     int btime = -1;
     int winc = -1;
     int binc = -1;
-
-    // reset tt
 
     nodes = 0;
 
@@ -464,6 +492,8 @@ int main(int argc, char* argv[]) {
             std::cout << "readyok" << std::endl;
         } else if (command == "ucinewgame") {
             board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+            // reset tt
+            std::fill(transposition_table.begin(), transposition_table.end(), TranspositionTableEntry());
         } else if (command == "position") {
             handlePosition(iss);
         } else if (command == "go") {
