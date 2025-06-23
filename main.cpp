@@ -246,9 +246,15 @@ int qsearch(Board board, int depth_real, int alpha, int beta) {
     return alpha;
 }
 
-int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) {
+int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
     if (depth <= 0) {
         return qsearch(board, depth_real+1, -beta, -alpha);
+    }
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+
+    if (elapsed_ms >= max_time) {
+        return 0; // doesnt matter because the results get discarded anyway
     }
 
     Movelist movelist;
@@ -274,7 +280,7 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
         board.makeMove(bestmove);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha);
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time);
 
         board.unmakeMove(bestmove);
 
@@ -298,7 +304,7 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
         board.makeMove(move);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha);
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time);
 
         board.unmakeMove(move);
 
@@ -427,24 +433,24 @@ void handleGo(std::istringstream& ss) {
         bool iteration_completed = true;
 
         for (const auto &move : all_legal_moves) {
-            auto current_time = std::chrono::high_resolution_clock::now();
-            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
-
-            if (elapsed_ms >= max_time) {
-                iteration_completed = false;
-                break;
-            }
-
             board.makeMove(move);
             nodes++;
 
-            int eval = -negamax(board, current_depth - 1, 1, -INFINITY, INFINITY);
+            int eval = -negamax(board, current_depth - 1, 1, -INFINITY, INFINITY, start_time, max_time);
 
             board.unmakeMove(move);
 
             if (eval > currentIterationBestEval) {
                 currentIterationBestEval = eval;
                 currentIterationBestMove = move;
+            }
+
+            auto current_time = std::chrono::high_resolution_clock::now();
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+
+            if (elapsed_ms >= max_time) {
+                iteration_completed = false;
+                break;
             }
         }
 
