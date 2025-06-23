@@ -31,7 +31,9 @@ int hce_pieces(const Board board) {
     const int ROOK_VALUE = 500;
     const int QUEEN_VALUE = 900;
 
-    const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 10; // The bonus for being 1 unit closer
+    const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 15;
+    const double PAWN_ADVANCE_BONUS = 15;
+    const double OTHER_ADVANCE_BONUS = 7;
 
     chess::Square white_king_sq = board.kingSq(Color::WHITE);
     chess::Square black_king_sq = board.kingSq(Color::BLACK);
@@ -80,19 +82,19 @@ int hce_pieces(const Board board) {
 
         // an attacked piece is effectively a lost piece (if your pieces are attacked, deduct their value)
         if(board.isAttacked(sq, Color::WHITE)) {
-            score += piece_value/2;
+            score += piece_value/4;
         }
         else if(board.isAttacked(sq, Color::BLACK)) {
-            score -= piece_value/2;
+            score -= piece_value/4;
         }
 
         // TODO: reward pawns for being more up the board
         if (piece.type() == chess::PieceType::PAWN) {
             int rank = sq.rank(); // 0 for rank 1, 7 for rank 8
             if (piece.color() == chess::Color::WHITE) {
-                score += (rank - 1) * 7;
+                score += (rank - 1) * PAWN_ADVANCE_BONUS;
             } else { // Black pawn
-                score -= (6 - rank) * 7;
+                score -= (6 - rank) * PAWN_ADVANCE_BONUS;
             }
         }
     }
