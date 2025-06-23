@@ -5,22 +5,19 @@
 #include "chess.hpp"
 using namespace chess;
 
-Board board; // The default position is startpos
+Board board;
 
 int nodes = 0;
 
 const bool use_tt = true;
 
 const int INFINITY = std::numeric_limits<int>::max();
-const int MATE_SCORE = 1000000; // A high score to represent mate
+const int MATE_SCORE = 1000000;
 
 // Helpers
 bool is_capture_move(const chess::Move& move, const chess::Board& board) {
     chess::Square targetSq = move.to();
     chess::Piece targetPiece = board.at(targetSq);
-
-    // A capture occurs if the target square is occupied by a piece
-    // of the opponent's color.
     return (targetPiece != Piece::NONE) && (targetPiece.color() != board.sideToMove());
 }
 
@@ -53,7 +50,7 @@ int hce_pieces(const Board board) {
             case PieceType(PieceType::BISHOP): piece_value = BISHOP_VALUE; break;
             case PieceType(PieceType::ROOK):   piece_value = ROOK_VALUE;   break;
             case PieceType(PieceType::QUEEN):  piece_value = QUEEN_VALUE;  break;
-            case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value in this simple eval
+            case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value in this eval
             default: break;
         }
 
@@ -66,12 +63,6 @@ int hce_pieces(const Board board) {
                 dx = std::abs(sq.file() - black_king_sq.file());
                 dy = std::abs(sq.rank() - black_king_sq.rank());
                 int manhattan_distance = dx + dy;
-
-                // Max distance on an 8x8 board is 7+7 = 14.
-                // We want a higher bonus for closer pieces, so we can calculate
-                // bonus as (MaxDistance - ActualDistance) * PointsPerUnit
-                // This means a piece at distance 0 gets MaxDistance * PointsPerUnit,
-                // and a piece at MaxDistance gets 0.
                 bonus = (14 - manhattan_distance) * (1 / PROXIMITY_BONUS_PER_UNIT_DISTANCE) * piece_value;
             } else { // Black piece
                 // Calculate distance to white king
@@ -83,7 +74,7 @@ int hce_pieces(const Board board) {
         }
         if (piece.color() == chess::Color::WHITE) {
             score += bonus;
-        } else { // Black piece
+        } else {
             score -= bonus;
         }
 
@@ -124,9 +115,6 @@ int get_piece_value(chess::PieceType pt) {
 
 // Comparison function for sorting moves by MVV-LVA
 bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board) {
-    // MVV-LVA: Most Valuable Victim - Least Valuable Attacker
-
-    // If both are captures, compare based on MVV-LVA
     bool a_is_capture = board.at(a.to()) != chess::Piece::NONE;
     bool b_is_capture = board.at(b.to()) != chess::Piece::NONE;
 
@@ -144,15 +132,11 @@ bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess:
             return a_attacker_value < b_attacker_value;
         }
     } else if (a_is_capture) {
-        return true; // Captures come before non-captures
+        return true; // Captures before non-captures
     } else if (b_is_capture) {
-        return false; // Non-captures come after captures
+        return false; // Non-captures after captures
     }
 
-    // If neither are captures, or both are non-captures, their relative order
-    // is not determined by MVV-LVA. For simplicity, we can keep their
-    // original relative order or use another heuristic if available.
-    // For this function's scope, we just say they are "equal" in MVV-LVA terms.
     return false;
 }
 
@@ -163,7 +147,6 @@ std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const che
         sorted_moves.push_back(move);
     }
 
-    // Use a lambda function to pass board by reference
     std::sort(sorted_moves.begin(), sorted_moves.end(), [&](const chess::Move& a, const chess::Move& b) {
         return compareMovesMVVLVA(a, b, board);
     });
@@ -221,9 +204,6 @@ int evaluate(const chess::Board board, int depth) {
     // HCE Filters
     score += hce_pieces(board);
 
-    // Adjust score based on the side to move for Negamax
-    // If it's black's turn, we want to maximize black's score, so we negate the score
-    // from white's perspective.
     if (board.sideToMove() == chess::Color::BLACK) {
         score = -score;
     }
@@ -337,9 +317,9 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
             maxScore = score;
         }
 
-        alpha = std::max(alpha, score); // Update alpha
+        alpha = std::max(alpha, score);
         if (alpha >= beta) {
-            break; // Beta cut-off
+            break; // Beta cutoff
         }
     }
     return maxScore;
@@ -353,14 +333,11 @@ void handlePosition(std::istringstream& ss) {
         board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     } else if (token == "fen") {
         std::string fen_string;
-        // Read the FEN string, which can have spaces
+        // Read the FEN string- can have spaces
         while (ss >> token && token != "moves") {
             fen_string += token + " ";
         }
-        // Remove trailing space if any
-        if (!fen_string.empty()) {
-            fen_string.pop_back();
-        }
+        if (!fen_string.empty()) {fen_string.pop_back();}
         board.setFen(fen_string);
 
         if (token == "moves") {
@@ -374,7 +351,6 @@ void handlePosition(std::istringstream& ss) {
     }
 
     ss >> token; // Should be "moves"
-    // Process moves if present
     if (token == "moves") {
         while (ss >> token) {
             //std::cout << token << std::endl;
@@ -385,10 +361,6 @@ void handlePosition(std::istringstream& ss) {
 }
 
 void handleGo(std::istringstream& ss) {
-    // For this basic engine, we ignore other 'go' parameters (wtime, btime, movestogo, depth, etc.)
-    // We'll just run a search to a fixed depth.
-
-    // Constraint based on which is reached first
     int max_depth = 99; // Default search depth
     int max_time = 1500; // Default search time
 
@@ -432,9 +404,15 @@ void handleGo(std::istringstream& ss) {
         if(wtime != -1) {
             max_time = wtime / 20;
         }
+        if(winc != -1) {
+            max_time += winc; 
+        }
     } else {
         if(btime != -1) {
             max_time = btime / 20;
+        }
+        if(binc != -1) {
+            max_time += binc; 
         }
     }
 
@@ -506,7 +484,7 @@ void handleGo(std::istringstream& ss) {
     if (bestMoveOverall.from() != chess::Square::NO_SQ) {
         std::cout << "bestmove " << uci::moveToUci(bestMoveOverall) << std::endl;
     } else {
-        std::cout << "bestmove (none)" << std::endl; // Should not happen in a solvable position
+        std::cout << "bestmove 0000" << std::endl;
     }
 }
 
@@ -535,11 +513,6 @@ int main(int argc, char* argv[]) {
             handleGo(iss);
         } else if (command == "quit") {
             break;
-        } else if (command == "d") { 
-            // Custom command for debug: print board (very simple)
-            // This would require a Board::print() or similar in chess.hpp
-            std::cerr << "Debug: Board representation not available in this simplified demo." << std::endl;
-            // You would add `current_board.print()` if your library provides it.
         }
     }
 
