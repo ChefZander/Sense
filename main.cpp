@@ -162,25 +162,34 @@ struct TranspositionTableEntry {
     TranspositionTableEntry() : hash_key(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
-const int TT_SIZE = /*size mb: */16 * 1024 * 1024 / sizeof(TranspositionTableEntry);
+const int TT_SIZE_DEFAULT = /*size mb: */16 * 1024 * 1024 / sizeof(TranspositionTableEntry);
 std::vector<TranspositionTableEntry> transposition_table;
 
+// thanks aletheia
+[[nodiscard]] inline uint64_t table_index(uint64_t hash) {
+    return static_cast<uint64_t>((static_cast<unsigned __int128>(hash) * static_cast<unsigned __int128>(transposition_table.size())) >> 64);
+}
+
+TranspositionTableEntry probe_entry(uint64_t hash_key) {
+    uint64_t index = table_index(hash_key);
+    TranspositionTableEntry entry;
+
+    if (transposition_table[index].hash_key == hash_key) entry = transposition_table[index];
+
+    return entry;
+}
+
 void store_entry(uint64_t hash_key, int depth, Move bestmove) {
-    int index = hash_key % TT_SIZE;
+    int index = hash_key % TT_SIZE_DEFAULT;
     TranspositionTableEntry& entry = transposition_table[index];
 
-    // Replacement strategy: always replace or replace if new depth is better
-    // For a pure evaluation, "always replace" is often fine if depth isn't used for strategy.
-    // If depth is used (e.g., in a search, a higher depth means more reliable), then:
-    if (depth >= entry.depth && entry.hash_key != hash_key) { // Replace if new is deeper or it's a new entry
+    if (depth >= entry.depth && entry.hash_key != hash_key) {
         entry.hash_key = hash_key;
         entry.depth = depth;
         entry.bestmove = bestmove;
     }
 }
 
-// A simple material-based evaluation.
-// Positive score means good for the current side to move.
 int evaluate(const chess::Board board, int depth) {
     int score = 0;
     // HCE Filters
@@ -258,9 +267,8 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
     int maxScore = -INFINITY;
     Move thisBestMove = Move::NO_MOVE;
 
-    // move sorting
     uint64_t zobrist = board.hash();
-    TranspositionTableEntry entry = transposition_table[zobrist % TT_SIZE];
+    TranspositionTableEntry entry = probe_entry(zobrist);
     Move bestmove = entry.bestmove;
     if(entry.depth >= depth_real) {
         board.makeMove(bestmove);
@@ -278,6 +286,7 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
         alpha = std::max(alpha, score);
     }
 
+    // move sorting
     std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
 
     for (const auto& move : moves) {
@@ -478,6 +487,8 @@ int main(int argc, char* argv[]) {
     std::string line;
     board = Board();
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+
+    transposition_table.resize(TT_SIZE_DEFAULT);
 
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);
