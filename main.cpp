@@ -286,6 +286,11 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, 
         }
         return 0; // Stalemate
     }
+    
+    // Draw conditions
+    if(board.isRepetition() || board.isInsufficientMaterial() || board.isHalfMoveDraw()){
+        return 0;
+    }
 
     int maxScore = -INFINITY;
     Move thisBestMove = Move::NO_MOVE;
