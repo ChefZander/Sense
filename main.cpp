@@ -216,17 +216,13 @@ int evaluate(const chess::Board board, int depth) {
     return score;
 }
 
-int qsearch(Board board, int depth_real, int alpha, int beta) { // Added alpha and beta for alpha-beta pruning
-    nodes++; // It's common to count nodes at the entry of the function
+int qsearch(Board board, int depth_real, int alpha, int beta) {
+    int standPat = evaluate(board, depth_real); 
 
-    // Stand-pat (no-move) evaluation
-    // This is the score if we don't make a capture move
-    int standPat = evaluate(board, depth_real); // You'll need an evaluate function for static evaluation
-
-    if (standPat >= beta) { // Beta cutoff for stand-pat
+    if (standPat >= beta) {
         return beta;
     }
-    if (standPat > alpha) { // Update alpha if stand-pat is better
+    if (standPat > alpha) {
         alpha = standPat;
     }
 
@@ -234,48 +230,37 @@ int qsearch(Board board, int depth_real, int alpha, int beta) { // Added alpha a
     movegen::legalmoves(movelist, board);
     std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
 
-    // No need to check for empty moves here if only captures are considered later.
-    // The standPat handles the "no profitable capture" case.
-
-    // Draw conditions
     if(board.isRepetition() || board.isInsufficientMaterial() || board.isHalfMoveDraw()){
         return 0;
     }
 
-    // Filter for only capture moves
-    // Sorting captures by something like MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
-    // or history heuristics for captures can improve pruning.
     std::vector<chess::Move> captureMoves;
     for (const auto& move : moves) {
-        if (board.isCapture(move)) { // Assuming board.isCapture() exists
+        if (board.isCapture(move)) {
             captureMoves.push_back(move);
         }
     }
 
-    // In a true quiescence search, only "noisy" moves (captures, pawn pushes that promote)
-    // are typically considered. Non-capture moves are handled by the main search.
+    int maxScore = standPat;
 
-    int maxScore = standPat; // Initialize maxScore with standPat
-
-    for (const auto& move : captureMoves) { // Iterate only over capture moves
+    for (const auto& move : captureMoves) {
         board.makeMove(move);
+        nodes++;
 
-        int score = -qsearch(board, depth_real+1, -beta, -alpha); // NegaMax with alpha-beta
+        int score = -qsearch(board, depth_real+1, -beta, -alpha);
 
         board.unmakeMove(move);
 
-        if (score >= beta) { // Beta cutoff
+        if (score >= beta) {
             return beta;
         }
-        if (score > alpha) { // Update alpha
+        if (score > alpha) {
             alpha = score;
         }
     }
-    return alpha; // Return alpha, which is the best score found
+    return alpha;
 }
 
-// --- Negamax Search with Alpha-Beta Pruning ---
-// Returns the evaluation score for the current board position.
 int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) {
     if (depth <= 0) {
         return qsearch(board, depth_real+1, -beta, -alpha);
