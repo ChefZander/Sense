@@ -279,10 +279,6 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta) 
         return 0; // Stalemate
     }
 
-    if(board.isRepetition() || board.isInsufficientMaterial() || board.isHalfMoveDraw()){
-        return 0;
-    }
-
     // move sorting
     std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
 
