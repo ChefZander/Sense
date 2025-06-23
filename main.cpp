@@ -97,6 +97,14 @@ int hce_pieces(const Board board) {
                 score -= (6 - rank) * PAWN_ADVANCE_BONUS;
             }
         }
+        else if (piece.type() != chess::PieceType::KING){
+            int rank = sq.rank(); // 0 for rank 1, 7 for rank 8
+            if (piece.color() == chess::Color::WHITE) {
+                score += (rank - 1) * OTHER_ADVANCE_BONUS;
+            } else { // Black pawn
+                score -= (6 - rank) * OTHER_ADVANCE_BONUS;
+            }
+        }
     }
 
     return score;
