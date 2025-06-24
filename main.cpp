@@ -3,6 +3,7 @@
 #include <chrono>
 
 #include "chess.hpp"
+#include "nn/sensenet.hpp"
 using namespace chess;
 
 Board board;
@@ -11,7 +12,7 @@ int nodes = 0;
 
 const bool use_tt = true;
 
-const int INFINITY = std::numeric_limits<int>::max();
+const int NUMERIC_MAX = std::numeric_limits<int>::max();
 const int MATE_SCORE = 1000000;
 
 // Helpers
@@ -203,7 +204,10 @@ void store_entry(uint64_t hash_key, int depth, Move bestmove) {
 int evaluate(const chess::Board board, int depth) {
     int score = 0;
     // HCE Filters
-    score += hce_pieces(board);
+    //score += hce_pieces(board);
+
+    // SenseNet Evaluation
+    score += sensenet::predict(sensenet::boardToBitboards(board));
 
     if (board.sideToMove() == chess::Color::BLACK) {
         score = -score;
@@ -292,7 +296,7 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, 
         return 0;
     }
 
-    int maxScore = -INFINITY;
+    int maxScore = -NUMERIC_MAX;
     Move thisBestMove = Move::NO_MOVE;
 
     uint64_t zobrist = board.hash();
@@ -443,7 +447,7 @@ void handleGo(std::istringstream& ss) {
 
     Move bestMoveOverall;
     bestMoveOverall = all_legal_moves[0];
-    int bestEvalOverall = -INFINITY;
+    int bestEvalOverall = -NUMERIC_MAX;
 
     // Record the start time
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -451,14 +455,14 @@ void handleGo(std::istringstream& ss) {
     // Iterative Deepening Loop
     for (int current_depth = 1; current_depth <= max_depth; ++current_depth) {
         Move currentIterationBestMove = bestMoveOverall;
-        int currentIterationBestEval = -INFINITY;
+        int currentIterationBestEval = -NUMERIC_MAX;
         bool iteration_completed = true;
 
         for (const auto &move : all_legal_moves) {
             board.makeMove(move);
             nodes++;
 
-            int eval = -negamax(board, current_depth - 1, 1, -INFINITY, INFINITY, start_time, max_time);
+            int eval = -negamax(board, current_depth - 1, 1, -NUMERIC_MAX, NUMERIC_MAX, start_time, max_time);
 
             board.unmakeMove(move);
 
@@ -517,6 +521,9 @@ int main(int argc, char* argv[]) {
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
     transposition_table.resize(TT_SIZE_DEFAULT);
+
+    // load nn
+    sensenet::loadWeights();
 
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);
