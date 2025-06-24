@@ -11,6 +11,7 @@
 const int INPUT_NEURONS = 768;
 const int HL1_NEURONS = 16;
 const int OUTPUT_NEURONS = 1; // Always 1 in value net inference (except if output is WDL but its not here so its 1)
+const int QUANTIZATION = 255;
 
 /*
 Model architecture is 
@@ -18,11 +19,11 @@ IL (768) -> HL1 (16, no activation) -> OL (1, sigmoid)
 
 */
 
-std::vector<std::vector<float>> hl1_weights(INPUT_NEURONS, std::vector<float>(HL1_NEURONS));
-std::vector<float> hl1_bias(HL1_NEURONS);
+std::array<int, INPUT_NEURONS * HL1_NEURONS> hl1_weights;
+std::array<int, HL1_NEURONS> hl1_bias;
 
-std::vector<std::vector<float>> output_weights(HL1_NEURONS, std::vector<float>(OUTPUT_NEURONS));
-std::vector<float> output_bias(OUTPUT_NEURONS);
+std::array<int, HL1_NEURONS * OUTPUT_NEURONS> output_weights;
+std::array<int, OUTPUT_NEURONS> output_bias;
 
 /*
 This needs to be optimized to use quantized Integer weights instead
@@ -32,13 +33,13 @@ Just changing the vector types, should be good also the stof needs to be stoi in
 */
 
 namespace sensenet {
-    std::vector<float> parseLine(const std::string& line) {
-        std::vector<float> values;
+    std::vector<int> parseLine(const std::string& line) {
+        std::vector<int> values;
         std::stringstream ss(line);
         std::string token;
         while (ss >> token) {
             try {
-                values.push_back(std::stof(token));
+                values.push_back(std::stoi(token));
             } catch (const std::invalid_argument& e) {
                 std::cerr << "Invalid argument: " << e.what() << std::endl;
             } catch (const std::out_of_range& e) {
@@ -73,38 +74,26 @@ namespace sensenet {
                 continue;
             }
 
-            std::vector<float> values = parseLine(line);
+            std::vector<int> values = parseLine(line);
 
             if (current_section == "hidden_layer_1_weights") {
                 for (float val : values) {
-                    int row = weight_idx / HL1_NEURONS;
-                    int col = weight_idx % HL1_NEURONS;
-                    if (row < INPUT_NEURONS && col < HL1_NEURONS) {
-                        hl1_weights[row][col] = val;
-                    }
+                    hl1_weights[weight_idx] = val;
                     weight_idx++;
                 }
             } else if (current_section == "hidden_layer_1_bias") {
                 for (float val : values) {
-                    if (weight_idx < HL1_NEURONS) {
-                        hl1_bias[weight_idx] = val;
-                    }
+                    hl1_bias[weight_idx] = val;
                     weight_idx++;
                 }
             } else if (current_section == "output_layer_weights") {
                 for (float val : values) {
-                    int row = weight_idx / OUTPUT_NEURONS;
-                    int col = weight_idx % OUTPUT_NEURONS;
-                    if (row < HL1_NEURONS && col < OUTPUT_NEURONS) {
-                        output_weights[row][col] = val;
-                    }
+                    output_weights[weight_idx] = val;
                     weight_idx++;
                 }
-            } else if (current_section == "output_layer_1_bias" || current_section == "output_layer_bias") { // Handle both possibilities
+            } else if (current_section == "output_layer_bias") {
                 for (float val : values) {
-                    if (weight_idx < OUTPUT_NEURONS) {
-                        output_bias[weight_idx] = val;
-                    }
+                    output_bias[weight_idx] = val;
                     weight_idx++;
                 }
             }
@@ -114,75 +103,59 @@ namespace sensenet {
         std::cout << "info string Weights loaded successfully!" << std::endl;
     }
 
-    std::vector<float> boardToBitboards(const chess::Board& board) {
-        std::vector<uint64_t> intermediateBitboards(12, 0ULL);
+    std::array<int, INPUT_NEURONS> boardToBitboards(const chess::Board& board) {
+        std::array<int, INPUT_NEURONS> bb;
 
-        std::vector<int> pieceTypeToIndex(64);
-        pieceTypeToIndex[chess::PAWN] = 0;
-        pieceTypeToIndex[chess::KNIGHT] = 1;
-        pieceTypeToIndex[chess::BISHOP] = 2;
-        pieceTypeToIndex[chess::ROOK] = 3;
-        pieceTypeToIndex[chess::QUEEN] = 4;
-        pieceTypeToIndex[chess::KING] = 5;
+        std::array<chess::PieceType, 6> indexToPieceType;
+        indexToPieceType[0] = chess::PieceType(chess::PieceType::PAWN);
+        indexToPieceType[1] = chess::PieceType(chess::PieceType::KNIGHT);
+        indexToPieceType[2] = chess::PieceType(chess::PieceType::BISHOP);
+        indexToPieceType[3] = chess::PieceType(chess::PieceType::ROOK);
+        indexToPieceType[4] = chess::PieceType(chess::PieceType::QUEEN);
+        indexToPieceType[5] = chess::PieceType(chess::PieceType::KING);
 
-        chess::Color sideToMoveColor = board.sideToMove();
-        chess::Color sideNotToMoveColor = (sideToMoveColor == chess::Color::WHITE) ? chess::Color::BLACK : chess::Color::WHITE;
+        for (int pieceTypeIdx = 0; pieceTypeIdx < 12; ++pieceTypeIdx) {
+            chess::Color color;
+            if(pieceTypeIdx > 6) {
+                color = board.sideToMove();
+            }
+            else {
+                color = board.sideToMove() == chess::Color::WHITE ? chess::Color::BLACK : chess::Color::WHITE;
+            }
+            chess::Bitboard piecesBB = board.pieces(indexToPieceType[pieceTypeIdx], color).getBits();
 
-        for (chess::Square square = 0; square < 64; ++square) {
-            const chess::Piece piece = board.at(square);
-
-            if (piece) {
-                int pieceTypeIdx = pieceTypeToIndex[piece.type()];
-                uint64_t bitPosition = square.index();
-
-                if (piece.color() == sideToMoveColor) {
-                    intermediateBitboards[pieceTypeIdx] |= (1ULL << bitPosition);
-                } else if (piece.color() == sideNotToMoveColor) {
-                    intermediateBitboards[pieceTypeIdx + 6] |= (1ULL << bitPosition);
+            int squareIndex = 63;
+            while (piecesBB) {
+                if (pieceTypeIdx * 64 + squareIndex < INPUT_NEURONS) {
+                    bb[pieceTypeIdx * 64 + squareIndex] = piecesBB.pop();
                 }
+                squareIndex--;
             }
         }
-        std::vector<float> flattenedInput;
-        flattenedInput.reserve(12 * 64);
 
-        for (uint64_t bb : intermediateBitboards) {
-            for (int i = 0; i < 64; ++i) {
-                uint64_t bitValue = (bb >> i) & 1ULL;
-                flattenedInput.push_back(static_cast<float>(bitValue));
-            }
-        }
-        while (flattenedInput.size() < 784) {
-            flattenedInput.push_back(0.0f);
-        }
-        return flattenedInput;
+        return bb;
     }
 
-    float predict(std::vector<float> input_data) {
+    float predict(const std::array<int, INPUT_NEURONS>& input_data) {
         // HL1
-        std::vector<float> hl1_output(HL1_NEURONS, 0.0f);
+        std::array<int, HL1_NEURONS> hl1_output;
         for (int j = 0; j < HL1_NEURONS; ++j) {
-            float sum = 0.0f;
+            int sum = 0;
             for (int i = 0; i < INPUT_NEURONS; ++i) {
-                sum += input_data[i] * hl1_weights[i][j];
+                if(input_data[i] == 1) {
+                    sum += hl1_weights[i*j];
+                }
             }
             hl1_output[j] = sum + hl1_bias[j];
         }
 
         // OL
-        std::vector<float> output_raw(OUTPUT_NEURONS, 0.0f);
-        for (int j = 0; j < OUTPUT_NEURONS; ++j) {
-            float sum = 0.0f;
-            for (int i = 0; i < HL1_NEURONS; ++i) {
-                sum += hl1_output[i] * output_weights[i][j];
-            }
-            output_raw[j] = sum + output_bias[j];
+        int sum = 0;
+        for (int i = 0; i < HL1_NEURONS; ++i) {
+            sum += hl1_output[i] * output_weights[i];
         }
+        sum += output_bias[0];
 
-        std::vector<float> final_output(OUTPUT_NEURONS);
-        for (int j = 0; j < OUTPUT_NEURONS; ++j) {
-            final_output[j] = sigmoid(output_raw[j]);
-        }
-
-        return final_output[0];
+        return static_cast<float>(sum) / QUANTIZATION / QUANTIZATION;
     }
 }

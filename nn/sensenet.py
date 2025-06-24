@@ -3,7 +3,7 @@ import chess
 
 def get_network(): 
     model = tf.keras.Sequential([
-        tf.keras.layers.Dense(16, input_shape=(784,), use_bias=True, name='hidden_layer_1'),
+        tf.keras.layers.Dense(16, input_shape=(768,), use_bias=True, name='hidden_layer_1'),
         tf.keras.layers.Dense(1, activation='sigmoid', use_bias=True, name='output_layer')
     ])
 

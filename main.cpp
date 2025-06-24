@@ -524,6 +524,7 @@ int main(int argc, char* argv[]) {
 
     // load nn
     sensenet::loadWeights();
+    std::cout << "info string NN Inference Test: " << sensenet::predict(sensenet::boardToBitboards(board)) << std::endl;
 
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);
