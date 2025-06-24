@@ -1,5 +1,6 @@
 #include <iostream>
 #include <limits>
+#include <random>
 #include <chrono>
 
 #include "chess.hpp"
@@ -517,7 +518,33 @@ void handleGo(std::istringstream& ss) {
 }
 
 void handleDatagen(std::istringstream& ss) {
-    
+    std::string filename;
+    ss >> filename;
+    std::ofstream outputFile(filename, std::ios::app);
+
+    if (!outputFile.is_open()) {
+        std::cerr << "Error: Could not open '" << filename << "'.\n";
+        return;
+    }
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    for(int i = 0; i <= 100; ++i) {
+        Board datagen;
+        for(int j = 0; i <= 6; ++j) {
+            Movelist moves;
+            movegen::legalmoves(moves, datagen);
+            Move randomMove;
+            std::sample(moves.front(), moves.back(), std::back_inserter(randomMove), 1, gen);
+            datagen.makeMove(randomMove);
+        }
+    }
+
+    outputFile << "Appended line.\n";
+    outputFile.close();
+
+    std::cout << "Data appended to '" << filename << "'.\n";
 }
 
 int main(int argc, char* argv[]) {
