@@ -31,7 +31,7 @@ def export_weights_to_txt(model, filename="nn-1.sense"):
                     # Multiply by QUANTIZATION, round to nearest integer, and convert to int
                     # Flatten the array for saving to file
                     quantized_weights = np.round(weights[0] * QUANTIZATION).astype(int)
-                    np.savetxt(f, quantized_weights.flatten(), fmt='%d') # Use %d for integer output
+                    np.savetxt(f, quantized_weights.flatten().reshape(1, -1), fmt='%d', delimiter=" ") # Use %d for integer output
 
                 # Process biases if they exist
                 if len(weights) > 1:
@@ -39,7 +39,7 @@ def export_weights_to_txt(model, filename="nn-1.sense"):
                     # Multiply by QUANTIZATION, round to nearest integer, and convert to int
                     # Flatten the array for saving to file
                     quantized_biases = np.round(weights[1] * QUANTIZATION).astype(int)
-                    np.savetxt(f, quantized_biases.flatten(), fmt='%d') # Use %d for integer output
+                    np.savetxt(f, quantized_biases.flatten().reshape(1, -1), fmt='%d', delimiter=" ") # Use %d for integer output
 
     print(f"\nWeights exported to {filename}")
 

@@ -12,6 +12,7 @@ const int INPUT_NEURONS = 768;
 const int HL1_NEURONS = 16;
 const int OUTPUT_NEURONS = 1; // Always 1 in value net inference (except if output is WDL but its not here so its 1)
 const int QUANTIZATION = 255;
+const int EVAL_SCALE = 400;
 
 /*
 Model architecture is 
@@ -55,9 +56,9 @@ namespace sensenet {
     }
 
     void loadWeights() {
-        std::ifstream file("nn/nn-1.sense");
+        std::ifstream file("nn.sense");
         if (!file.is_open()) {
-            std::cerr << "info string Error: Could not open nn/nn-1.sense" << std::endl;
+            std::cerr << "info string Error: Could not open nn-1.sense" << std::endl;
             return;
         }
 
@@ -77,22 +78,22 @@ namespace sensenet {
             std::vector<int> values = parseLine(line);
 
             if (current_section == "hidden_layer_1_weights") {
-                for (float val : values) {
+                for (int val : values) {
                     hl1_weights[weight_idx] = val;
                     weight_idx++;
                 }
             } else if (current_section == "hidden_layer_1_bias") {
-                for (float val : values) {
+                for (int val : values) {
                     hl1_bias[weight_idx] = val;
                     weight_idx++;
                 }
             } else if (current_section == "output_layer_weights") {
-                for (float val : values) {
+                for (int val : values) {
                     output_weights[weight_idx] = val;
                     weight_idx++;
                 }
             } else if (current_section == "output_layer_bias") {
-                for (float val : values) {
+                for (int val : values) {
                     output_bias[weight_idx] = val;
                     weight_idx++;
                 }
@@ -101,15 +102,19 @@ namespace sensenet {
         file.close();
 
         std::cout << "info string Weights loaded successfully!" << std::endl;
+
+        /*for(int val : output_weights) {
+            std::cout << val << std::endl;
+        }*/
     }
 
     std::array<int, INPUT_NEURONS> boardToBitboards(const chess::Board& board) {
-        std::array<int, INPUT_NEURONS> bb;
+        std::array<int, INPUT_NEURONS> bb {};
 
         for (int piecePlane = 0; piecePlane < 12; ++piecePlane) {
             chess::PieceType type = chess::PieceType(chess::PieceType::underlying(piecePlane % 6));
             chess::Color color;
-            if(piecePlane > 6) {
+            if(piecePlane < 6) {
                 color = board.sideToMove();
             }
             else {
@@ -117,12 +122,9 @@ namespace sensenet {
             }
             chess::Bitboard piecesBB = board.pieces(type, color).getBits();
 
-            int squareIndex = 63;
             while (piecesBB) {
-                if (piecePlane * 64 + squareIndex < INPUT_NEURONS) {
-                    bb[piecePlane * 64 + squareIndex] = piecesBB.pop();
-                }
-                squareIndex--;
+                int squareIndex = piecesBB.pop();
+                bb[piecePlane * 64 + squareIndex] = 1;
             }
         }
 
@@ -136,7 +138,8 @@ namespace sensenet {
             int sum = 0;
             for (int i = 0; i < INPUT_NEURONS; ++i) {
                 if(input_data[i] == 1) {
-                    sum += hl1_weights[i*j];
+                    sum += hl1_weights[i * HL1_NEURONS + j];
+                    //sum += hl1_weights[j * INPUT_NEURONS + i];
                 }
             }
             hl1_output[j] = sum + hl1_bias[j];
@@ -149,6 +152,6 @@ namespace sensenet {
         }
         sum += output_bias[0];
 
-        return static_cast<float>(sum) / QUANTIZATION / QUANTIZATION;
+        return (static_cast<float>(sum) / QUANTIZATION / QUANTIZATION) * EVAL_SCALE;
     }
 }

@@ -11,6 +11,7 @@ Board board;
 int nodes = 0;
 
 const bool use_tt = true;
+const bool use_nn = false;
 
 const int NUMERIC_MAX = std::numeric_limits<int>::max();
 const int MATE_SCORE = 1000000;
@@ -203,11 +204,12 @@ void store_entry(uint64_t hash_key, int depth, Move bestmove) {
 
 int evaluate(const chess::Board board, int depth) {
     int score = 0;
-    // HCE Filters
-    //score += hce_pieces(board);
-
-    // SenseNet Evaluation
-    score += sensenet::predict(sensenet::boardToBitboards(board));
+    if(use_nn) {
+        score = sensenet::predict(sensenet::boardToBitboards(board));
+    }
+    else {
+        score += hce_pieces(board);
+    }
 
     if (board.sideToMove() == chess::Color::BLACK) {
         score = -score;
@@ -269,7 +271,7 @@ int qsearch(Board board, int depth_real, int alpha, int beta, std::chrono::_V2::
 
 int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
     if (depth <= 0) {
-        return qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
+        return evaluate(board, depth_real); //qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
     }
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
@@ -514,6 +516,10 @@ void handleGo(std::istringstream& ss) {
     }
 }
 
+void handleDatagen(std::istringstream& ss) {
+    
+}
+
 int main(int argc, char* argv[]) {
 
     std::string line;
@@ -523,8 +529,10 @@ int main(int argc, char* argv[]) {
     transposition_table.resize(TT_SIZE_DEFAULT);
 
     // load nn
-    sensenet::loadWeights();
-    std::cout << "info string NN Inference Test: " << sensenet::predict(sensenet::boardToBitboards(board)) << std::endl;
+    if(!use_nn) {
+        sensenet::loadWeights();
+        std::cout << "info string NN Inference Test: " << sensenet::predict(sensenet::boardToBitboards(board)) << std::endl;
+    }
 
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);

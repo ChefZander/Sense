@@ -11,64 +11,50 @@ def get_network():
     model.summary()
     return model
 
-def board_to_bitboards(board: chess.Board) -> list[float]:
-    """
-    Converts a chess.Board object into a list of 12 bitboards.
+def board_to_bitboards(board: chess.Board) -> list[int]:
+        bb = [0] * 768 # Initialize all to 0
 
-    The order of bitboards in the returned list is crucial:
-    [0]  Side to move Pawns
-    [1]  Side to move Knights
-    [2]  Side to move Bishops
-    [3]  Side to move Rooks
-    [4]  Side to move Queens
-    [5]  Side to move Kings
-    [6]  Side NOT to move Pawns
-    [7]  Side NOT to move Knights
-    [8]  Side NOT to move Bishops
-    [9]  Side NOT to move Rooks
-    [10] Side NOT to move Queens
-    [11] Side NOT to move Kings
+        # Mapping piece types to indices (0-5 for P, N, B, R, Q, K)
+        # This aligns with chess::PieceType(chess::PieceType::underlying(piecePlane % 6))
+        piece_type_to_idx = {
+            chess.PAWN: 0,
+            chess.KNIGHT: 1,
+            chess.BISHOP: 2,
+            chess.ROOK: 3,
+            chess.QUEEN: 4,
+            chess.KING: 5
+        }
 
-    Each bitboard is a 64-bit integer where a set bit (1) at position 'n'
-    indicates the presence of the corresponding piece type on the square
-    represented by 'n' (a1=0, b1=1, ..., h8=63).
+        # The C++ code's `piecePlane` interpretation:
+        # `piecePlane % 6` gives the piece type index (0-5)
+        # `piecePlane > 6` for color indicates "current player's color" for `piecePlane` 7-11
+        # `piecePlane <= 6` for color indicates "opponent's color" for `piecePlane` 0-6
 
-    Args:
-        board (chess.Board): The chess.Board object to convert.
+        # This is a rather unusual way to define piece planes.
+        # Let's clarify the 12 planes:
+        # Planes 0-5: Opponent's pieces (P, N, B, R, Q, K)
+        # Planes 6-11: Current player's pieces (P, N, B, R, Q, K)
 
-    Returns:
-        list[int]: A list of 12 integers, each representing a bitboard.
-                   The integers are treated as 64-bit unsigned values.
-    """
-    intermediate_bitboards = [0] * 12
-    piece_type_to_index = {
-        chess.PAWN: 0,
-        chess.KNIGHT: 1,
-        chess.BISHOP: 2,
-        chess.ROOK: 3,
-        chess.QUEEN: 4,
-        chess.KING: 5
-    }
+        # Let's adjust for this specific C++ logic:
+        # If `board.sideToMove()` is WHITE:
+        #   piecePlane 0-5 are BLACK pieces (opponent)
+        #   piecePlane 6-11 are WHITE pieces (current player)
+        # If `board.sideToMove()` is BLACK:
+        #   piecePlane 0-5 are WHITE pieces (opponent)
+        #   piecePlane 6-11 are BLACK pieces (current player)
 
-    side_to_move_color = board.turn
-    side_not_to_move_color = not board.turn
-
-    for square in chess.SQUARES:
-        piece = board.piece_at(square)
-
-        if piece:
-            piece_type_idx = piece_type_to_index[piece.piece_type]
-            bit_position = square
-
-            if piece.color == side_to_move_color:
-                intermediate_bitboards[piece_type_idx] |= (1 << bit_position)
-            elif piece.color == side_not_to_move_color:
-                intermediate_bitboards[piece_type_idx + 6] |= (1 << bit_position)
-
-    flattened_input = []
-    for bb in intermediate_bitboards:
-        for i in range(64):
-            bit_value = (bb >> i) & 1
-            flattened_input.append(float(bit_value))
-
-    return flattened_input
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece:
+                piece_type_idx = piece_type_to_idx[piece.piece_type]
+                
+                # Determine the piecePlane based on color and side_to_move
+                if piece.color == board.turn: # Current player's piece
+                    piece_plane = piece_type_idx
+                else: # Opponent's piece
+                    piece_plane = 6 + piece_type_idx
+                
+                # Set the bitboard value for the corresponding square
+                bb[piece_plane * 64 + square] = 1
+        
+        return bb
