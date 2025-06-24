@@ -115,35 +115,6 @@ namespace sensenet {
     }
 
     std::vector<float> boardToBitboards(const chess::Board& board) {
-        /**
-         * Converts a chess::Board object (from Disservin's Chess library)
-         * into a flattened list of 768 float values (12 bitboards * 64 bits/bitboard).
-         * Each float is either 0.0f or 1.0f.
-         *
-         * The order of the 12 conceptual bitboards within the flattened list is:
-         * [0]  Side to move Pawns
-         * [1]  Side to move Knights
-         * [2]  Side to move Bishops
-         * [3]  Side to move Rooks
-         * [4]  Side to move Queens
-         * [5]  Side to move Kings
-         * [6]  Side NOT to move Pawns
-         * [7]  Side NOT to move Knights
-         * [8]  Side NOT to move Bishops
-         * [9]  Side NOT to move Rooks
-         * [10] Side NOT to move Queens
-         * [11] Side NOT to move Kings
-         *
-         * Within each conceptual bitboard, squares are ordered from a1 (bit 0)
-         * to h8 (bit 63).
-         *
-         * Args:
-         * board (const chess::Board&): The chess::Board object to convert.
-         *
-         * Returns:
-         * std::vector<float>: A flattened list of 768 float values (0.0f or 1.0f),
-         * representing the bitboard state ready for a neural network.
-         */
         std::vector<uint64_t> intermediateBitboards(12, 0ULL);
 
         std::vector<int> pieceTypeToIndex(64);
@@ -189,19 +160,19 @@ namespace sensenet {
     float predict(std::vector<float> input_data) {
         // HL1
         std::vector<float> hl1_output(HL1_NEURONS, 0.0f);
-        for (int j = 0; j < HL1_NEURONS; ++j) { // For each neuron in HL1
+        for (int j = 0; j < HL1_NEURONS; ++j) {
             float sum = 0.0f;
-            for (int i = 0; i < INPUT_NEURONS; ++i) { // Sum over inputs
+            for (int i = 0; i < INPUT_NEURONS; ++i) {
                 sum += input_data[i] * hl1_weights[i][j];
             }
-            hl1_output[j] = sum + hl1_bias[j]; // No activation for HL1
+            hl1_output[j] = sum + hl1_bias[j];
         }
 
         // OL
         std::vector<float> output_raw(OUTPUT_NEURONS, 0.0f);
-        for (int j = 0; j < OUTPUT_NEURONS; ++j) { // For each neuron in Output Layer
+        for (int j = 0; j < OUTPUT_NEURONS; ++j) {
             float sum = 0.0f;
-            for (int i = 0; i < HL1_NEURONS; ++i) { // Sum over HL1 outputs
+            for (int i = 0; i < HL1_NEURONS; ++i) {
                 sum += hl1_output[i] * output_weights[i][j];
             }
             output_raw[j] = sum + output_bias[j];
