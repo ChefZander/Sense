@@ -106,28 +106,21 @@ namespace sensenet {
     std::array<int, INPUT_NEURONS> boardToBitboards(const chess::Board& board) {
         std::array<int, INPUT_NEURONS> bb;
 
-        std::array<chess::PieceType, 6> indexToPieceType;
-        indexToPieceType[0] = chess::PieceType(chess::PieceType::PAWN);
-        indexToPieceType[1] = chess::PieceType(chess::PieceType::KNIGHT);
-        indexToPieceType[2] = chess::PieceType(chess::PieceType::BISHOP);
-        indexToPieceType[3] = chess::PieceType(chess::PieceType::ROOK);
-        indexToPieceType[4] = chess::PieceType(chess::PieceType::QUEEN);
-        indexToPieceType[5] = chess::PieceType(chess::PieceType::KING);
-
-        for (int pieceTypeIdx = 0; pieceTypeIdx < 12; ++pieceTypeIdx) {
+        for (int piecePlane = 0; piecePlane < 12; ++piecePlane) {
+            chess::PieceType type = chess::PieceType(chess::PieceType::underlying(piecePlane % 6));
             chess::Color color;
-            if(pieceTypeIdx > 6) {
+            if(piecePlane > 6) {
                 color = board.sideToMove();
             }
             else {
                 color = board.sideToMove() == chess::Color::WHITE ? chess::Color::BLACK : chess::Color::WHITE;
             }
-            chess::Bitboard piecesBB = board.pieces(indexToPieceType[pieceTypeIdx], color).getBits();
+            chess::Bitboard piecesBB = board.pieces(type, color).getBits();
 
             int squareIndex = 63;
             while (piecesBB) {
-                if (pieceTypeIdx * 64 + squareIndex < INPUT_NEURONS) {
-                    bb[pieceTypeIdx * 64 + squareIndex] = piecesBB.pop();
+                if (piecePlane * 64 + squareIndex < INPUT_NEURONS) {
+                    bb[piecePlane * 64 + squareIndex] = piecesBB.pop();
                 }
                 squareIndex--;
             }
