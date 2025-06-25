@@ -15,7 +15,6 @@ const bool use_tt = true;
 const bool use_nn = false;
 
 const int NUMERIC_MAX = std::numeric_limits<int>::max();
-const int MATE_SCORE = 1000000;
 
 // Helpers
 bool is_capture_move(const chess::Move& move, const chess::Board& board) {
@@ -25,7 +24,7 @@ bool is_capture_move(const chess::Move& move, const chess::Board& board) {
 }
 
 // --- Evaluation Functions ---
-int hce_pieces(const Board board) {
+int hce_pieces(const Board& board) {
     int score = 0;
 
     const int PAWN_VALUE = 100;
@@ -34,9 +33,9 @@ int hce_pieces(const Board board) {
     const int ROOK_VALUE = 500;
     const int QUEEN_VALUE = 900;
 
-    const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 15;
-    const double PAWN_ADVANCE_BONUS = 15;
-    const double OTHER_ADVANCE_BONUS = 7;
+    const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 5;
+    const double PAWN_ADVANCE_BONUS = 5;
+    const double OTHER_ADVANCE_BONUS = 3;
 
     chess::Square white_king_sq = board.kingSq(Color::WHITE);
     chess::Square black_king_sq = board.kingSq(Color::BLACK);
@@ -108,6 +107,14 @@ int hce_pieces(const Board board) {
                 score -= (6 - rank) * OTHER_ADVANCE_BONUS;
             }
         }
+        else if (piece.type() == chess::PieceType::KING) { // Kings get a penalty for moving up the board
+            int rank = sq.rank();
+            if (piece.color() == chess::Color::WHITE) {
+                score -= (rank - 1) * OTHER_ADVANCE_BONUS;
+            } else { // Black pawn
+                score += (6 - rank) * OTHER_ADVANCE_BONUS;
+            }
+        }
     }
 
     return score;
@@ -175,7 +182,7 @@ struct TranspositionTableEntry {
     TranspositionTableEntry() : hash_key(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
-const int TT_SIZE_DEFAULT = /*size mb: */16 * 1024 * 1024 / sizeof(TranspositionTableEntry);
+const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
 std::vector<TranspositionTableEntry> transposition_table;
 
 // thanks aletheia
@@ -203,7 +210,7 @@ void store_entry(uint64_t hash_key, int depth, Move bestmove) {
     }
 }
 
-int evaluate(const chess::Board board, int depth) {
+int evaluate(const chess::Board& board, int depth) {
     int score = 0;
     if(use_nn) {
         score = sensenet::predict(sensenet::boardToBitboards(board));
@@ -218,67 +225,19 @@ int evaluate(const chess::Board board, int depth) {
     return score;
 }
 
-int qsearch(Board board, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
-    auto current_time = std::chrono::high_resolution_clock::now();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
-
-    if (elapsed_ms >= max_time) {
-        return 0; // doesnt matter because the results get discarded anyway
-    }
-
-    int standPat = evaluate(board, depth_real); 
-
-    if (standPat >= beta) {
-        return beta;
-    }
-    if (standPat > alpha) {
-        alpha = standPat;
-    }
-
-    Movelist movelist;
-    movegen::legalmoves(movelist, board);
-    std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
-
-    if(board.isRepetition() || board.isInsufficientMaterial() || board.isHalfMoveDraw()){
-        return 0;
-    }
-
-    std::vector<chess::Move> captureMoves;
-    for (const auto& move : moves) {
-        if (board.isCapture(move)) {
-            captureMoves.push_back(move);
-        }
-    }
-
-    int maxScore = standPat;
-
-    for (const auto& move : captureMoves) {
-        board.makeMove(move);
-        nodes++;
-
-        int score = -qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
-
-        board.unmakeMove(move);
-
-        if (score >= beta) {
-            return beta;
-        }
-        if (score > alpha) {
-            alpha = score;
-        }
-    }
-    return alpha;
-}
-
-int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time) {
+int negamax(chess::Board& board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time, int max_nodes) {
     if (depth <= 0) {
         return evaluate(board, depth_real); //qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
     }
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
 
-    if (elapsed_ms >= max_time) {
-        return 0; // doesnt matter because the results get discarded anyway
+    
+    if (max_time != -1 && elapsed_ms >= max_time) {
+        return 0;
+    }
+    if(max_nodes != -1 && nodes > max_nodes) {
+        return 0;
     }
 
     Movelist movelist;
@@ -286,10 +245,10 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, 
 
     if (movelist.empty()) {
         if (board.isAttacked(board.kingSq(board.sideToMove()), !board.sideToMove())) {
-            return -MATE_SCORE;
+            return -NUMERIC_MAX;
         }
         if (board.isAttacked(board.kingSq(!board.sideToMove()), board.sideToMove())) {
-            return MATE_SCORE;
+            return NUMERIC_MAX;
         }
         return 0; // Stalemate
     }
@@ -305,53 +264,64 @@ int negamax(chess::Board board, int depth, int depth_real, int alpha, int beta, 
     uint64_t zobrist = board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
     Move bestmove = entry.bestmove;
-    if(entry.depth >= depth_real) {
+    if(entry.depth <= depth && bestmove != Move::NO_MOVE) {
         board.makeMove(bestmove);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time);
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time, max_nodes);
 
         board.unmakeMove(bestmove);
 
-        if (score >= maxScore) {
+        if (score > maxScore) {
             maxScore = score;
             thisBestMove = bestmove;
+
+            if(score > alpha) {
+                alpha = score;
+            }
         }
 
-        alpha = std::max(alpha, score);
+        if (alpha >= beta) { // beta cutoff
+            if(entry.depth >= depth) {
+                store_entry(zobrist, depth, thisBestMove);
+            }
+            return maxScore;
+        }
     }
 
     // move sorting
-    std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
+    //std::vector<Move> moves = sortMovesMVVLVA(movelist, board);
 
-    for (const auto& move : moves) {
+    for (const auto& move : movelist) {
         // skip the move tt already did
-        if(move == bestmove) {
+        /*if(move == bestmove) {
             continue;
-        }
+        }*/
 
         board.makeMove(move);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time);
+        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time, max_nodes);
 
         board.unmakeMove(move);
 
-        if (score >= maxScore) {
+        if (score > maxScore) {
             maxScore = score;
             thisBestMove = move;
+
+            if(score > alpha) {
+                alpha = score;
+            }
         }
 
-        alpha = std::max(alpha, score);
         if (alpha >= beta) {
             break;
         }
     }
 
     // add tt entry for current move
-
-    if(entry.depth <= depth_real) {
-        store_entry(zobrist, depth_real, thisBestMove);
+    if(entry.depth >= depth) {
+        store_entry(zobrist, depth, thisBestMove);
     }
     return maxScore;
 }
@@ -391,9 +361,84 @@ void handlePosition(std::istringstream& ss) {
     }
 }
 
+Move engineGo(int max_depth, int max_nodes, int max_time) {
+    Movelist all_legal_moves;
+    movegen::legalmoves(all_legal_moves, board);
+
+    Move bestMoveOverall;
+    bestMoveOverall = all_legal_moves[0];
+    int bestEvalOverall = -NUMERIC_MAX;
+
+    // Record the start time
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    // Iterative Deepening Loop
+    for (int current_depth = 1; current_depth <= max_depth; ++current_depth) {
+        Move currentIterationBestMove = Move::NO_MOVE;
+        int currentIterationBestEval = -NUMERIC_MAX;
+        bool iteration_completed = true;
+
+        for (const auto &move : all_legal_moves) {
+            board.makeMove(move);
+            nodes++;
+
+            int eval = -negamax(board, current_depth - 1, 1, -NUMERIC_MAX, NUMERIC_MAX, start_time, max_time, max_nodes);
+
+            board.unmakeMove(move);
+
+            if (eval > currentIterationBestEval) {
+                currentIterationBestEval = eval;
+                currentIterationBestMove = move;
+            }
+
+            auto current_time = std::chrono::high_resolution_clock::now();
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+
+            if (max_time != -1 && elapsed_ms >= max_time) {
+                iteration_completed = false;
+                break;
+            }
+            if(max_nodes != -1 && nodes > max_nodes) {
+                iteration_completed = false;
+                break;
+            }
+        }
+
+        if (!iteration_completed) {
+            break;
+        }
+        auto current_time = std::chrono::high_resolution_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+        int nps = nodes;
+        if((elapsed_ms / 1000) != 0) {
+            nps = static_cast<int>((nodes / (elapsed_ms / 1000)));
+        }
+
+        bestEvalOverall = currentIterationBestEval;
+        bestMoveOverall = currentIterationBestMove;
+
+        if (current_depth == 1 && bestMoveOverall == Move()) {
+            if (!all_legal_moves.empty()) {
+                 bestMoveOverall = all_legal_moves[0];
+            }
+        }
+        std::cout << "info"
+                    << " depth " << current_depth
+                    << " nodes " << nodes
+                    << " time " << elapsed_ms
+                    << " score cp " << bestEvalOverall
+                    << " nps " << nps
+                    << " pv " << uci::moveToUci(bestMoveOverall)
+                    << std::endl;
+    }
+
+    return bestMoveOverall;
+}
+
 void handleGo(std::istringstream& ss) {
     int max_depth = 99; // Default search depth
-    int max_time = 1500; // Default search time
+    int max_time = -1; // Default search time
+    int max_nodes = -1;
 
     int wtime = -1;
     int btime = -1;
@@ -406,6 +451,9 @@ void handleGo(std::istringstream& ss) {
     while (ss >> token) {
         if (token == "depth") {
             ss >> max_depth;
+        }
+        else if (token == "nodes") {
+            ss >> max_nodes;
         }
         else if (token == "movetime") {
             ss >> token;
@@ -435,6 +483,10 @@ void handleGo(std::istringstream& ss) {
         }
         if(winc != -1) {
             max_time += winc; 
+
+            if(wtime < winc) {
+                max_time = winc;
+            }
         }
     } else {
         if(btime != -1) {
@@ -442,109 +494,32 @@ void handleGo(std::istringstream& ss) {
         }
         if(binc != -1) {
             max_time += binc; 
+
+            if(btime < binc) {
+                max_time = binc;
+            }
         }
     }
 
-    Movelist all_legal_moves;
-    movegen::legalmoves(all_legal_moves, board);
+    Move bestmove = engineGo(max_depth, max_nodes, max_time);
 
-    Move bestMoveOverall;
-    bestMoveOverall = all_legal_moves[0];
-    int bestEvalOverall = -NUMERIC_MAX;
-
-    // Record the start time
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // Iterative Deepening Loop
-    for (int current_depth = 1; current_depth <= max_depth; ++current_depth) {
-        Move currentIterationBestMove = bestMoveOverall;
-        int currentIterationBestEval = -NUMERIC_MAX;
-        bool iteration_completed = true;
-
-        for (const auto &move : all_legal_moves) {
-            board.makeMove(move);
-            nodes++;
-
-            int eval = -negamax(board, current_depth - 1, 1, -NUMERIC_MAX, NUMERIC_MAX, start_time, max_time);
-
-            board.unmakeMove(move);
-
-            if (eval > currentIterationBestEval) {
-                currentIterationBestEval = eval;
-                currentIterationBestMove = move;
-            }
-
-            auto current_time = std::chrono::high_resolution_clock::now();
-            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
-
-            if (elapsed_ms >= max_time) {
-                iteration_completed = false;
-                break;
-            }
-        }
-
-        if (!iteration_completed) {
-            break;
-        }
-        auto current_time = std::chrono::high_resolution_clock::now();
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
-        int nps = nodes;
-        if((elapsed_ms / 1000) != 0) {
-            nps = static_cast<int>((nodes / (elapsed_ms / 1000)));
-        }
-        bestEvalOverall = currentIterationBestEval;
-        bestMoveOverall = currentIterationBestMove;
-
-        if (current_depth == 1 && bestMoveOverall == Move()) {
-            if (!all_legal_moves.empty()) {
-                 bestMoveOverall = all_legal_moves[0];
-            }
-        }
-        std::cout << "info"
-                    << " depth " << current_depth
-                    << " nodes " << nodes
-                    << " time " << elapsed_ms
-                    << " score cp " << bestEvalOverall
-                    << " nps " << nps
-                    << " pv " << uci::moveToUci(bestMoveOverall)
-                    << std::endl;
-    }
-
-    if (bestMoveOverall.from() != chess::Square::NO_SQ) {
-        std::cout << "bestmove " << uci::moveToUci(bestMoveOverall) << std::endl;
+    if (bestmove.from() != chess::Square::NO_SQ) {
+        std::cout << "bestmove " << uci::moveToUci(bestmove) << std::endl;
     } else {
         std::cout << "bestmove 0000" << std::endl;
     }
 }
 
-void handleDatagen(std::istringstream& ss) {
-    std::string filename;
-    ss >> filename;
-    std::ofstream outputFile(filename, std::ios::app);
-
-    if (!outputFile.is_open()) {
-        std::cerr << "Error: Could not open '" << filename << "'.\n";
-        return;
+void runTests() {
+    // Test 1
+    board.setFen("4k3/2r4p/1pp1BQ2/4p3/p3P3/4P3/5KPP/3R4 w - - 0 42");
+    Move test1 = engineGo(5, -1, -1);
+    if(test1 == uci::uciToMove(board, "d1d8")) {
+        std::cout << "TEST: Mate in 1: PASSED" << std::endl;
     }
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    for(int i = 0; i <= 100; ++i) {
-        Board datagen;
-        for(int j = 0; i <= 6; ++j) {
-            Movelist moves;
-            movegen::legalmoves(moves, datagen);
-            Move randomMove;
-            std::sample(moves.front(), moves.back(), std::back_inserter(randomMove), 1, gen);
-            datagen.makeMove(randomMove);
-        }
+    else {
+        std::cout << "TEST: Mate in 1: FAILED" << std::endl;
     }
-
-    outputFile << "Appended line.\n";
-    outputFile.close();
-
-    std::cout << "Data appended to '" << filename << "'.\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -556,7 +531,7 @@ int main(int argc, char* argv[]) {
     transposition_table.resize(TT_SIZE_DEFAULT);
 
     // load nn
-    if(!use_nn) {
+    if(use_nn) {
         sensenet::loadWeights();
         std::cout << "info string NN Inference Test: " << sensenet::predict(sensenet::boardToBitboards(board)) << std::endl;
     }
@@ -578,6 +553,8 @@ int main(int argc, char* argv[]) {
             std::fill(transposition_table.begin(), transposition_table.end(), TranspositionTableEntry());
         } else if (command == "position") {
             handlePosition(iss);
+        } else if (command == "test") {
+            runTests();
         } else if (command == "go") {
             handleGo(iss);
         } else if (command == "quit") {
