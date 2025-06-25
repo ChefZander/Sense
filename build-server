@@ -1,3 +1,0 @@
-#!/bin/bash
-g++ -O3 -o builds/sense-server main.cpp
-echo "built"

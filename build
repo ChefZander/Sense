@@ -1,4 +1,0 @@
-#!/bin/bash
-g++ -O3 -march=native -o builds/sense main.cpp # -fsanitize=address,undefined 
-echo "built"
-./builds/sense
