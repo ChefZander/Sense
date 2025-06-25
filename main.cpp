@@ -26,6 +26,36 @@ bool is_capture_move(const chess::Move& move, const chess::Board& board) {
 }
 
 // --- Evaluation Functions ---
+int hce_material(const Board& board) {
+    int score = 0;
+
+    const int PAWN_VALUE = 100;
+    const int KNIGHT_VALUE = 320;
+    const int BISHOP_VALUE = 330;
+    const int ROOK_VALUE = 500;
+    const int QUEEN_VALUE = 900;
+
+    for (int i = 0; i < 64; ++i) {
+        chess::Square sq = static_cast<chess::Square>(i);
+        chess::Piece piece = board.at(sq);
+
+        if (piece == chess::Piece::NONE) continue;
+
+        // material evaluation
+        int piece_value = 0;
+        switch (piece.type()) {
+            case PieceType(PieceType::PAWN):   piece_value = PAWN_VALUE;   break;
+            case PieceType(PieceType::KNIGHT): piece_value = KNIGHT_VALUE; break;
+            case PieceType(PieceType::BISHOP): piece_value = BISHOP_VALUE; break;
+            case PieceType(PieceType::ROOK):   piece_value = ROOK_VALUE;   break;
+            case PieceType(PieceType::QUEEN):  piece_value = QUEEN_VALUE;  break;
+            case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value in this eval
+            default: break;
+        }
+    }
+
+    return score;
+}
 int hce_pieces(const Board& board) {
     int score = 0;
 
@@ -238,8 +268,7 @@ struct SearchData {
 };
 
 int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
-    // depth is set in iterative deepening, ply should be 0 when called from iterative deepening
-    if (ply >= search.max_depth) { // not technically needed now but you will overflow some tables later if you don't have this
+    if (ply >= search.max_depth) {
         return evaluate(search.board);
     }
 
@@ -341,15 +370,15 @@ void handlePosition(std::istringstream& ss) {
 }
 
 Move engineGo(int max_depth, int max_nodes, int max_time) {
-    SearchData search;
+    SearchData search = SearchData();
     search.board = board;
     search.max_time = max_time;
     search.max_depth = max_depth;
     search.start_time = std::chrono::high_resolution_clock::now();
 
-    Move bestMove;
-    int score;
-    for (int depth = 1; depth >= max_depth; depth++) {
+    Move bestMove = Move::NO_MOVE;
+    int score = 0;
+    for (int depth = 1; depth <= max_depth; depth++) {
         int iterScore = negamax(search, depth, 0, -NUMERIC_MAX, NUMERIC_MAX);
         // don't use search results from unfinished searches
         if (search.stop) {
@@ -365,11 +394,23 @@ Move engineGo(int max_depth, int max_nodes, int max_time) {
         if((elapsed_ms / 1000) != 0) {
             nps = static_cast<int>((nodes / (elapsed_ms / 1000)));
         }
+
+        std::string score_string;
+        if (score > NUMERIC_MAX - max_depth) {
+            score_string = " score mate " + std::to_string(((NUMERIC_MAX - score) + 1) / 2);
+        }
+        else if (score < -NUMERIC_MAX + max_depth) {
+            score_string = " score mate -" + std::to_string((score + NUMERIC_MAX) / 2);
+        }
+        else {
+            score_string = " score cp " + std::to_string(score);
+        }
+
         std::cout << "info"
                     << " depth " << depth
                     << " nodes " << nodes
                     << " time " << elapsed_ms
-                    << " score cp " << score
+                    << score_string
                     << " nps " << nps
                     << " pv " << uci::moveToUci(bestMove)
                     << std::endl;
