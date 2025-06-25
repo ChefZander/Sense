@@ -9,6 +9,7 @@
 using namespace chess;
 
 Board board;
+Move bestmove;
 
 int nodes = 0;
 
@@ -226,9 +227,9 @@ int evaluate(const chess::Board& board, int depth) {
     return score;
 }
 
-int negamax(chess::Board& board, int depth, int depth_real, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time, int max_nodes) {
+int negamax(chess::Board& board, int depth, int ply, int alpha, int beta, std::chrono::_V2::system_clock::time_point start_time, int max_time, int max_nodes) {
     if (depth <= 0) {
-        return evaluate(board, depth_real); //qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
+        return evaluate(board, ply); //qsearch(board, depth_real+1, -beta, -alpha, start_time, max_time);
     }
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
@@ -246,10 +247,7 @@ int negamax(chess::Board& board, int depth, int depth_real, int alpha, int beta,
 
     if (movelist.empty()) {
         if (board.isAttacked(board.kingSq(board.sideToMove()), !board.sideToMove())) {
-            return -NUMERIC_MAX;
-        }
-        if (board.isAttacked(board.kingSq(!board.sideToMove()), board.sideToMove())) {
-            return NUMERIC_MAX;
+            return -NUMERIC_MAX + ply;
         }
         return 0; // Stalemate
     }
@@ -269,7 +267,7 @@ int negamax(chess::Board& board, int depth, int depth_real, int alpha, int beta,
         board.makeMove(bestmove);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time, max_nodes);
+        int score = -negamax(board, depth - 1, ply + 1, -beta, -alpha, start_time, max_time, max_nodes);
 
         board.unmakeMove(bestmove);
 
@@ -302,7 +300,7 @@ int negamax(chess::Board& board, int depth, int depth_real, int alpha, int beta,
         board.makeMove(move);
         nodes++;
 
-        int score = -negamax(board, depth - 1, depth_real + 1, -beta, -alpha, start_time, max_time, max_nodes);
+        int score = -negamax(board, depth - 1, ply + 1, -beta, -alpha, start_time, max_time, max_nodes);
 
         board.unmakeMove(move);
 
