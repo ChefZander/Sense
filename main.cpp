@@ -267,13 +267,71 @@ struct SearchData {
     int max_nodes;
 };
 
+int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
+    if (search.max_time != -1 && elapsed_ms >= search.max_time) {
+        search.stop = true;
+        return 0;
+    }
+
+    int eval = evaluate(search.board);
+
+    int bestScore = eval;
+    if(bestScore >= beta) {
+        return bestScore;
+    }
+    if(bestScore > alpha) {
+        alpha = bestScore;
+    }
+
+    Movelist movelist;
+    movegen::legalmoves(movelist, search.board);
+    if (movelist.size() == 0) {
+        return bestScore;
+    }
+
+    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board);
+
+    // filter captures
+    moves.erase(std::remove_if(moves.begin(), moves.end(), [&](const Move& move) {return !search.board.isCapture(move);}), moves.end());
+
+    for (Move move : moves) {
+        search.board.makeMove(move);
+        nodes++;
+        // ply increases with every move that is made
+        int score = -qsearch(search, depth - 1, ply + 1, -beta, -alpha);
+        search.board.unmakeMove(move);
+
+        // exit the search
+        if (search.stop) {
+            // return value is irrelevant, it will not be used
+            return 0;
+        }
+
+        if(score >= beta) {
+            return score;
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+        }
+
+        if(score > alpha) {
+            alpha = score;
+        }
+    }
+
+    return bestScore;
+}
+
 int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     if (ply >= search.max_depth) {
-        return evaluate(search.board);
+        return qsearch(search, depth, ply, alpha, beta);
     }
 
     if (depth <= 0) {
-        return evaluate(search.board);
+        return qsearch(search, depth, ply, alpha, beta);
     }
 
     if (search.board.isRepetition() || search.board.isInsufficientMaterial() || search.board.isHalfMoveDraw()) {
