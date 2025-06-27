@@ -289,9 +289,9 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     Move bestMove = Move::NO_MOVE;
     int bestScore = -NUMERIC_MAX;
 
-    Movelist moves;
-    movegen::legalmoves(moves, search.board);
-    if (moves.size() == 0) {
+    Movelist movelist;
+    movegen::legalmoves(movelist, search.board);
+    if (movelist.size() == 0) {
         if (search.board.inCheck()) {
             // favor shorter mates over longer ones
             return -NUMERIC_MAX + ply;
@@ -300,6 +300,9 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
             return 0;
         }
     }
+
+    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board);
+
     for (Move move : moves) {
         search.board.makeMove(move);
         nodes++;
