@@ -226,14 +226,13 @@ enum TranspositionTableFlag {
 };
 
 struct TranspositionTableEntry {
-    bool access_failed;
     uint64_t hash_key;
     Move bestmove;
     int depth;
     int score;
     TranspositionTableFlag flag;
 
-    TranspositionTableEntry() : access_failed(false), score(0), depth(0), bestmove(Move::NO_MOVE) {}
+    TranspositionTableEntry() : score(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
 const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
@@ -310,21 +309,6 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         return bestScore;
     }
 
-    
-    /*
-    uint64_t zobrist = search.board.hash();
-    std::pair<bool, TranspositionTableEntry> probeReturn = probe_entry(zobrist);
-    TranspositionTableEntry entry = probeReturn.second;
-
-    if (entry.depth >= depth && ply != 0) {
-            if (entry.flag == TranspositionTableFlag::EXACT
-                || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
-                || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
-                return entry.score;
-    }
-    */ // no tt cutoff in qsearch
-    int original_alpha = alpha;
-
     std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, Move::NO_MOVE);
 
     // filter captures
@@ -357,24 +341,6 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         }
     }
 
-    /*TranspositionTableEntry newEntry = TranspositionTableEntry();
-    newEntry.hash_key = zobrist;
-    newEntry.score = bestScore;
-    newEntry.depth = 0; // qsearch is self-similar
-    newEntry.bestmove = bestMove;
-
-    if(bestScore <= original_alpha) {
-        newEntry.flag == TranspositionTableFlag::UPPER;
-    }
-    else if (bestScore >= beta) {
-        newEntry.flag == TranspositionTableFlag::LOWER;
-    }
-    else {
-        newEntry.flag == TranspositionTableFlag::EXACT;
-    }
-
-    store_entry(zobrist, newEntry);
-    */
     return bestScore;
 }
 
@@ -386,11 +352,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         return 0;
     }
 
-    if (ply >= search.max_depth) {
-        return qsearch(search, depth, ply, alpha, beta);
-    }
-
-    if (depth <= 0) {
+    if (depth <= 0 || ply >= search.max_depth) {
         return qsearch(search, depth, ply, alpha, beta);
     }
 
@@ -414,7 +376,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     std::pair<bool, TranspositionTableEntry> probeReturn = probe_entry(zobrist);
     TranspositionTableEntry entry = probeReturn.second;
-    if (entry.depth >= depth && ply != 0 && !probeReturn.first) {
+    if (entry.depth >= depth && ply != 0 && probeReturn.first) {
             if (entry.flag == TranspositionTableFlag::EXACT
                 || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
                 || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
@@ -454,7 +416,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         }
 
         if(score >= beta) {
-            return bestScore;
+            break;
         }
     }
 
