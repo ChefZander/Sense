@@ -172,7 +172,14 @@ int get_piece_value(chess::PieceType pt) {
 }
 
 // Comparison function for sorting moves by MVV-LVA
-bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board) {
+bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board, const Move& ttmove) {
+    if(a == ttmove) {
+        return true;
+    }
+    else if (b == ttmove) {
+        return false;
+    }
+
     bool a_is_capture = board.at(a.to()) != chess::Piece::NONE;
     bool b_is_capture = board.at(b.to()) != chess::Piece::NONE;
 
@@ -199,14 +206,14 @@ bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess:
 }
 
 // Function to sort a Movelist by MVV-LVA ordering
-std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const chess::Board& board) {
+std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const chess::Board& board, const Move& ttmove) {
     std::vector<chess::Move> sorted_moves;
     for (const auto& move : moves) {
         sorted_moves.push_back(move);
     }
 
     std::sort(sorted_moves.begin(), sorted_moves.end(), [&](const chess::Move& a, const chess::Move& b) {
-        return compareMovesMVVLVA(a, b, board);
+        return compareMovesMVVLVA(a, b, board, ttmove);
     });
 
     return sorted_moves;
@@ -287,6 +294,7 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
     int eval = evaluate(search.board);
 
     int bestScore = eval;
+    Move bestMove = Move::NO_MOVE;
     if(bestScore >= beta) {
         return bestScore;
     }
@@ -300,7 +308,30 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         return bestScore;
     }
 
-    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board);
+    uint64_t zobrist = search.board.hash();
+    TranspositionTableEntry entry = probe_entry(zobrist);
+    if (entry.depth >= ply) {
+        switch (entry.flag)
+        {
+        case TranspositionTableFlag::EXACT:
+            return entry.score;
+        case TranspositionTableFlag::LOWER:
+            alpha = std::max(alpha, entry.score);
+            break;
+        case TranspositionTableFlag::UPPER:
+            beta = std::min(beta, entry.score);
+            break;
+        default:
+            break;
+        }
+
+        if(alpha >= beta) {
+            return entry.score;
+        }
+    }
+    int original_alpha = alpha;
+
+    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, entry.bestmove);
 
     // filter captures
     moves.erase(std::remove_if(moves.begin(), moves.end(), [&](const Move& move) {return !search.board.isCapture(move);}), moves.end());
@@ -323,6 +354,7 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         }
 
         if (score > bestScore) {
+            bestMove = move;
             bestScore = score;
         }
 
@@ -330,6 +362,23 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
             alpha = score;
         }
     }
+
+    TranspositionTableEntry newEntry = TranspositionTableEntry();
+    newEntry.score = bestScore;
+    newEntry.depth = ply;
+    newEntry.bestmove = bestMove;
+
+    if(bestScore <= original_alpha) {
+        newEntry.flag == TranspositionTableFlag::UPPER;
+    }
+    else if (bestScore >= beta) {
+        newEntry.flag == TranspositionTableFlag::LOWER;
+    }
+    else {
+        newEntry.flag == TranspositionTableFlag::EXACT;
+    }
+
+    store_entry(zobrist, newEntry);
 
     return bestScore;
 }
@@ -392,7 +441,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     int bestScore = -NUMERIC_MAX;
     int original_alpha = alpha; // for TT
 
-    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board);
+    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, entry.bestmove);
 
     for (Move move : moves) {
         search.board.makeMove(move);
@@ -428,6 +477,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     TranspositionTableEntry newEntry = TranspositionTableEntry();
     newEntry.score = bestScore;
     newEntry.depth = ply;
+    newEntry.bestmove = bestMove;
 
     if(bestScore <= original_alpha) {
         newEntry.flag == TranspositionTableFlag::UPPER;
