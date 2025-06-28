@@ -226,13 +226,14 @@ enum TranspositionTableFlag {
 };
 
 struct TranspositionTableEntry {
+    bool access_failed;
     uint64_t hash_key;
     Move bestmove;
     int depth;
     int score;
     TranspositionTableFlag flag;
 
-    TranspositionTableEntry() : hash_key(0), depth(0), bestmove(Move::NO_MOVE) {}
+    TranspositionTableEntry() : access_failed(false), score(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
 const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
@@ -245,11 +246,15 @@ std::vector<TranspositionTableEntry> transposition_table;
 
 TranspositionTableEntry probe_entry(uint64_t hash_key) {
     uint64_t index = table_index(hash_key);
-    TranspositionTableEntry entry = TranspositionTableEntry();
 
-    if (transposition_table[index].hash_key == hash_key) entry = transposition_table[index];
-
-    return entry;
+    if (transposition_table[index].hash_key == hash_key) {
+        return transposition_table[index];
+    }
+    else {
+        TranspositionTableEntry entry = TranspositionTableEntry();
+        entry.access_failed = true;
+        return entry;
+    }
 }
 
 void store_entry(uint64_t hash_key, TranspositionTableEntry entry) {
@@ -309,12 +314,12 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= depth && ply != 0) {
+    /*if (entry.depth >= depth && ply != 0) {
             if (entry.flag == TranspositionTableFlag::EXACT
                 || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
                 || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
                 return entry.score;
-    }
+    }*/ // no tt cutoff in qsearch
     int original_alpha = alpha;
 
     std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, entry.bestmove);
@@ -349,9 +354,10 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         }
     }
 
-    TranspositionTableEntry newEntry = TranspositionTableEntry();
+    /*TranspositionTableEntry newEntry = TranspositionTableEntry();
+    newEntry.hash_key = zobrist;
     newEntry.score = bestScore;
-    newEntry.depth = depth;
+    newEntry.depth = 0; // qsearch is self-similar
     newEntry.bestmove = bestMove;
 
     if(bestScore <= original_alpha) {
@@ -365,11 +371,18 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
     }
 
     store_entry(zobrist, newEntry);
-
+    */
     return bestScore;
 }
 
 int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
+    if (search.max_time != -1 && elapsed_ms >= search.max_time) {
+        search.stop = true;
+        return 0;
+    }
+
     if (ply >= search.max_depth) {
         return qsearch(search, depth, ply, alpha, beta);
     }
@@ -394,16 +407,9 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         }
     }
 
-    auto current_time = std::chrono::high_resolution_clock::now();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
-    if (search.max_time != -1 && elapsed_ms >= search.max_time) {
-        search.stop = true;
-        return 0;
-    }
-
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= depth && ply != 0) {
+    if (entry.depth >= depth && ply != 0 && !entry.access_failed) {
             if (entry.flag == TranspositionTableFlag::EXACT
                 || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
                 || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
@@ -448,6 +454,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     }
 
     TranspositionTableEntry newEntry = TranspositionTableEntry();
+    newEntry.hash_key = zobrist;
     newEntry.score = bestScore;
     newEntry.depth = depth;
     newEntry.bestmove = bestMove;
@@ -601,7 +608,7 @@ void handleGo(std::istringstream& ss) {
         if(winc != -1) {
             max_time += winc; 
 
-            if(wtime < winc) {
+            if(2*wtime < winc) {
                 max_time = winc;
             }
         }
@@ -612,7 +619,7 @@ void handleGo(std::istringstream& ss) {
         if(binc != -1) {
             max_time += binc; 
 
-            if(btime < binc) {
+            if(2*btime < binc) {
                 max_time = binc;
             }
         }
