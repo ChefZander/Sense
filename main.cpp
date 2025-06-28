@@ -173,11 +173,13 @@ int get_piece_value(chess::PieceType pt) {
 
 // Comparison function for sorting moves by MVV-LVA
 bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board, const Move& ttmove) {
-    if(a == ttmove) {
-        return true;
-    }
-    else if (b == ttmove) {
-        return false;
+    if(ttmove != Move::NO_MOVE) {
+        if(a == ttmove) {
+            return true;
+        }
+        else if (b == ttmove) {
+            return false;
+        }
     }
 
     bool a_is_capture = board.at(a.to()) != chess::Piece::NONE;
@@ -232,7 +234,7 @@ struct TranspositionTableEntry {
     int score;
     TranspositionTableFlag flag;
 
-    TranspositionTableEntry() : score(0), depth(0), bestmove(Move::NO_MOVE) {}
+    //TranspositionTableEntry() : score(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
 const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
@@ -352,12 +354,24 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         return 0;
     }
 
-    if (depth <= 0 || ply >= search.max_depth) {
-        return qsearch(search, depth, ply, alpha, beta);
-    }
-
     if (search.board.isRepetition() || search.board.isInsufficientMaterial() || search.board.isHalfMoveDraw()) {
         return 0;
+    }
+
+    uint64_t zobrist = search.board.hash();
+    if (depth <= 0 || ply >= search.max_depth) {
+        int score = qsearch(search, depth, ply, alpha, beta);
+
+        /*TranspositionTableEntry newEntry = TranspositionTableEntry();
+        newEntry.hash_key = zobrist;
+        newEntry.score = score;
+        newEntry.depth = depth;
+        newEntry.bestmove = Move::NO_MOVE;
+        newEntry.flag = TranspositionTableFlag::EXACT;
+
+        store_entry(zobrist, newEntry);*/
+
+        return score;
     }
 
     Movelist movelist;
@@ -371,8 +385,6 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
             return 0;
         }
     }
-
-    uint64_t zobrist = search.board.hash();
 
     std::pair<bool, TranspositionTableEntry> probeReturn = probe_entry(zobrist);
     TranspositionTableEntry entry = probeReturn.second;
@@ -570,13 +582,13 @@ void handleGo(std::istringstream& ss) {
 
     if(board.sideToMove() == Color::WHITE) {
         if(wtime != -1) {
-            max_time = wtime / 15;
+            max_time = wtime / 25;
         }
         if(winc != -1) {
             max_time += winc; 
 
             if(wtime < winc) {
-                max_time = winc-10;
+                max_time = winc;
             }
         }
     } else {
@@ -587,7 +599,7 @@ void handleGo(std::istringstream& ss) {
             max_time += binc; 
 
             if(btime < binc) {
-                max_time = binc-10;
+                max_time = binc;
             }
         }
     }
