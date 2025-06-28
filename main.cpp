@@ -52,6 +52,12 @@ int hce_material(const Board& board) {
             case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value in this eval
             default: break;
         }
+
+        if(piece.color() == Color::BLACK) {
+            piece_value = -piece_value;
+        }
+
+        score += piece_value;
     }
 
     return score;
@@ -248,7 +254,7 @@ int evaluate(const chess::Board& board) {
         score = sensenet::predict(sensenet::boardToBitboards(board));
     }
     else {
-        score += hce_pieces(board);
+        score += hce_material(board);
     }
 
     if (board.sideToMove() == chess::Color::BLACK) {
