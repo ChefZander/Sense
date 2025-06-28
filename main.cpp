@@ -174,10 +174,10 @@ int get_piece_value(chess::PieceType pt) {
 // Comparison function for sorting moves by MVV-LVA
 bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board, const Move& ttmove) {
     if(a == ttmove) {
-        return true;
+        return false;
     }
     else if (b == ttmove) {
-        return false;
+        return true;
     }
 
     bool a_is_capture = board.at(a.to()) != chess::Piece::NONE;
@@ -421,7 +421,8 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         switch (entry.flag)
         {
         case TranspositionTableFlag::EXACT:
-            return entry.score;
+            if(ply != 0) // if i dont have this check here, it never updates search.best_root, so it stays a1a1, so the engine tries to actually play a1a1 (bad)
+                return entry.score;
         case TranspositionTableFlag::LOWER:
             alpha = std::max(alpha, entry.score);
             break;
@@ -529,7 +530,7 @@ void handlePosition(std::istringstream& ss) {
     }
 }
 
-Move engineGo(int max_depth, int max_nodes, int max_time) {
+Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
     SearchData search = SearchData();
     search.board = board;
     search.max_time = max_time;
@@ -566,14 +567,15 @@ Move engineGo(int max_depth, int max_nodes, int max_time) {
             score_string = " score cp " + std::to_string(score);
         }
 
-        std::cout << "info"
-                    << " depth " << depth
-                    << " nodes " << nodes
-                    << " time " << elapsed_ms
-                    << score_string
-                    << " nps " << nps
-                    << " pv " << uci::moveToUci(bestMove)
-                    << std::endl;
+        if(!silent)
+            std::cout << "info"
+                        << " depth " << depth
+                        << " nodes " << nodes
+                        << " time " << elapsed_ms
+                        << score_string
+                        << " nps " << nps
+                        << " pv " << uci::moveToUci(bestMove)
+                        << std::endl;
     }
     return bestMove;
 }
@@ -644,7 +646,7 @@ void handleGo(std::istringstream& ss) {
         }
     }
 
-    Move bestmove = engineGo(max_depth, max_nodes, max_time);
+    Move bestmove = engineGo(max_depth, max_nodes, max_time, false);
 
     if (bestmove.from() != chess::Square::NO_SQ) {
         std::cout << "bestmove " << uci::moveToUci(bestmove) << std::endl;
@@ -654,9 +656,18 @@ void handleGo(std::istringstream& ss) {
 }
 
 void runTests() {
+    // Test 0
+    board.setFen(constants::STARTPOS);
+    Move test0 = engineGo(5, -1, -1, true);
+    if(test0 != Move::NO_MOVE) {
+        std::cout << "TEST: Nomove: PASSED" << std::endl;
+    }
+    else {
+        std::cout << "TEST: Nomove: FAILED" << std::endl;
+    }
     // Test 1
     board.setFen("4k3/2r4p/1pp1BQ2/4p3/p3P3/4P3/5KPP/3R4 w - - 0 42");
-    Move test1 = engineGo(5, -1, -1);
+    Move test1 = engineGo(5, -1, -1, true);
     if(test1 == uci::uciToMove(board, "d1d8")) {
         std::cout << "TEST: Mate in 1: PASSED" << std::endl;
     }
