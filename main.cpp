@@ -310,7 +310,7 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= ply) {
+    if (entry.depth >= depth) {
         switch (entry.flag)
         {
         case TranspositionTableFlag::EXACT:
@@ -365,7 +365,7 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     TranspositionTableEntry newEntry = TranspositionTableEntry();
     newEntry.score = bestScore;
-    newEntry.depth = ply;
+    newEntry.depth = depth;
     newEntry.bestmove = bestMove;
 
     if(bestScore <= original_alpha) {
@@ -417,7 +417,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= ply) {
+    if (entry.depth >= depth) {
         switch (entry.flag)
         {
         case TranspositionTableFlag::EXACT:
@@ -477,7 +477,7 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     TranspositionTableEntry newEntry = TranspositionTableEntry();
     newEntry.score = bestScore;
-    newEntry.depth = ply;
+    newEntry.depth = depth;
     newEntry.bestmove = bestMove;
 
     if(bestScore <= original_alpha) {
