@@ -212,10 +212,18 @@ std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const che
     return sorted_moves;
 }
 
+enum TranspositionTableFlag {
+    EXACT,
+    LOWER,
+    UPPER
+};
+
 struct TranspositionTableEntry {
     uint64_t hash_key;
     Move bestmove;
     int depth;
+    int score;
+    TranspositionTableFlag flag;
 
     TranspositionTableEntry() : hash_key(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
@@ -230,22 +238,17 @@ std::vector<TranspositionTableEntry> transposition_table;
 
 TranspositionTableEntry probe_entry(uint64_t hash_key) {
     uint64_t index = table_index(hash_key);
-    TranspositionTableEntry entry;
+    TranspositionTableEntry entry = TranspositionTableEntry();
 
     if (transposition_table[index].hash_key == hash_key) entry = transposition_table[index];
 
     return entry;
 }
 
-void store_entry(uint64_t hash_key, int depth, Move bestmove) {
+void store_entry(uint64_t hash_key, TranspositionTableEntry entry) {
     int index = hash_key % TT_SIZE_DEFAULT;
-    TranspositionTableEntry& entry = transposition_table[index];
 
-    if (depth >= entry.depth && entry.hash_key != hash_key) {
-        entry.hash_key = hash_key;
-        entry.depth = depth;
-        entry.bestmove = bestmove;
-    }
+    transposition_table[index] = entry;
 }
 
 int evaluate(const chess::Board& board) {
@@ -344,15 +347,6 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         return 0;
     }
 
-    auto current_time = std::chrono::high_resolution_clock::now();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
-    if (search.max_time != -1 && elapsed_ms >= search.max_time) {
-        search.stop = true;
-        return 0;
-    }
-    Move bestMove = Move::NO_MOVE;
-    int bestScore = -NUMERIC_MAX;
-
     Movelist movelist;
     movegen::legalmoves(movelist, search.board);
     if (movelist.size() == 0) {
@@ -364,6 +358,39 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
             return 0;
         }
     }
+
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
+    if (search.max_time != -1 && elapsed_ms >= search.max_time) {
+        search.stop = true;
+        return 0;
+    }
+
+    uint64_t zobrist = search.board.hash();
+    TranspositionTableEntry entry = probe_entry(zobrist);
+    if (entry.depth >= ply) {
+        switch (entry.flag)
+        {
+        case TranspositionTableFlag::EXACT:
+            return entry.score;
+        case TranspositionTableFlag::LOWER:
+            alpha = std::max(alpha, entry.score);
+            break;
+        case TranspositionTableFlag::UPPER:
+            beta = std::min(beta, entry.score);
+            break;
+        default:
+            break;
+        }
+
+        if(alpha >= beta) {
+            return entry.score;
+        }
+    }
+
+    Move bestMove = Move::NO_MOVE;
+    int bestScore = -NUMERIC_MAX;
+    int original_alpha = alpha; // for TT
 
     std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board);
 
@@ -397,6 +424,22 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
             return bestScore;
         }
     }
+
+    TranspositionTableEntry newEntry = TranspositionTableEntry();
+    newEntry.score = bestScore;
+    newEntry.depth = ply;
+
+    if(bestScore <= original_alpha) {
+        newEntry.flag == TranspositionTableFlag::UPPER;
+    }
+    else if (bestScore >= beta) {
+        newEntry.flag == TranspositionTableFlag::LOWER;
+    }
+    else {
+        newEntry.flag == TranspositionTableFlag::EXACT;
+    }
+
+    store_entry(zobrist, newEntry);
 
     return bestScore;
 }
