@@ -174,10 +174,10 @@ int get_piece_value(chess::PieceType pt) {
 // Comparison function for sorting moves by MVV-LVA
 bool compareMovesMVVLVA(const chess::Move& a, const chess::Move& b, const chess::Board& board, const Move& ttmove) {
     if(a == ttmove) {
-        return false;
+        return true;
     }
     else if (b == ttmove) {
-        return true;
+        return false;
     }
 
     bool a_is_capture = board.at(a.to()) != chess::Piece::NONE;
