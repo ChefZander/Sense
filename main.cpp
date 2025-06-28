@@ -253,8 +253,7 @@ TranspositionTableEntry probe_entry(uint64_t hash_key) {
 }
 
 void store_entry(uint64_t hash_key, TranspositionTableEntry entry) {
-    int index = hash_key % TT_SIZE_DEFAULT;
-
+    uint64_t index = table_index(hash_key);
     transposition_table[index] = entry;
 }
 
@@ -310,24 +309,11 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= depth) {
-        switch (entry.flag)
-        {
-        case TranspositionTableFlag::EXACT:
-            return entry.score;
-        case TranspositionTableFlag::LOWER:
-            alpha = std::max(alpha, entry.score);
-            break;
-        case TranspositionTableFlag::UPPER:
-            beta = std::min(beta, entry.score);
-            break;
-        default:
-            break;
-        }
-
-        if(alpha >= beta) {
-            return entry.score;
-        }
+    if (entry.depth >= depth && ply != 0) {
+            if (entry.flag == TranspositionTableFlag::EXACT
+                || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
+                || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
+                return entry.score;
     }
     int original_alpha = alpha;
 
@@ -417,25 +403,11 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
 
     uint64_t zobrist = search.board.hash();
     TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= depth) {
-        switch (entry.flag)
-        {
-        case TranspositionTableFlag::EXACT:
-            if(ply != 0) // if i dont have this check here, it never updates search.best_root, so it stays a1a1, so the engine tries to actually play a1a1 (bad)
+    if (entry.depth >= depth && ply != 0) {
+            if (entry.flag == TranspositionTableFlag::EXACT
+                || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
+                || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
                 return entry.score;
-        case TranspositionTableFlag::LOWER:
-            alpha = std::max(alpha, entry.score);
-            break;
-        case TranspositionTableFlag::UPPER:
-            beta = std::min(beta, entry.score);
-            break;
-        default:
-            break;
-        }
-
-        if(alpha >= beta) {
-            return entry.score;
-        }
     }
 
     Move bestMove = Move::NO_MOVE;
