@@ -244,16 +244,14 @@ std::vector<TranspositionTableEntry> transposition_table;
     return static_cast<uint64_t>((static_cast<unsigned __int128>(hash) * static_cast<unsigned __int128>(transposition_table.size())) >> 64);
 }
 
-TranspositionTableEntry probe_entry(uint64_t hash_key) {
+std::pair<bool, TranspositionTableEntry> probe_entry(uint64_t hash_key) {
     uint64_t index = table_index(hash_key);
 
     if (transposition_table[index].hash_key == hash_key) {
-        return transposition_table[index];
+        return {true, transposition_table[index]};
     }
     else {
-        TranspositionTableEntry entry = TranspositionTableEntry();
-        entry.access_failed = true;
-        return entry;
+        return {false, TranspositionTableEntry()};
     }
 }
 
@@ -312,17 +310,22 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
         return bestScore;
     }
 
+    
+    /*
     uint64_t zobrist = search.board.hash();
-    TranspositionTableEntry entry = probe_entry(zobrist);
-    /*if (entry.depth >= depth && ply != 0) {
+    std::pair<bool, TranspositionTableEntry> probeReturn = probe_entry(zobrist);
+    TranspositionTableEntry entry = probeReturn.second;
+
+    if (entry.depth >= depth && ply != 0) {
             if (entry.flag == TranspositionTableFlag::EXACT
                 || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
                 || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
                 return entry.score;
-    }*/ // no tt cutoff in qsearch
+    }
+    */ // no tt cutoff in qsearch
     int original_alpha = alpha;
 
-    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, entry.bestmove);
+    std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, Move::NO_MOVE);
 
     // filter captures
     moves.erase(std::remove_if(moves.begin(), moves.end(), [&](const Move& move) {return !search.board.isCapture(move);}), moves.end());
@@ -408,8 +411,10 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     }
 
     uint64_t zobrist = search.board.hash();
-    TranspositionTableEntry entry = probe_entry(zobrist);
-    if (entry.depth >= depth && ply != 0 && !entry.access_failed) {
+
+    std::pair<bool, TranspositionTableEntry> probeReturn = probe_entry(zobrist);
+    TranspositionTableEntry entry = probeReturn.second;
+    if (entry.depth >= depth && ply != 0 && !probeReturn.first) {
             if (entry.flag == TranspositionTableFlag::EXACT
                 || (entry.flag == TranspositionTableFlag::LOWER && entry.score >= beta)
                 || (entry.flag == TranspositionTableFlag::UPPER && entry.score <= alpha))
@@ -460,13 +465,13 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     newEntry.bestmove = bestMove;
 
     if(bestScore <= original_alpha) {
-        newEntry.flag == TranspositionTableFlag::UPPER;
+        newEntry.flag = TranspositionTableFlag::UPPER;
     }
     else if (bestScore >= beta) {
-        newEntry.flag == TranspositionTableFlag::LOWER;
+        newEntry.flag = TranspositionTableFlag::LOWER;
     }
     else {
-        newEntry.flag == TranspositionTableFlag::EXACT;
+        newEntry.flag = TranspositionTableFlag::EXACT;
     }
 
     store_entry(zobrist, newEntry);
@@ -603,24 +608,24 @@ void handleGo(std::istringstream& ss) {
 
     if(board.sideToMove() == Color::WHITE) {
         if(wtime != -1) {
-            max_time = wtime / 20;
+            max_time = wtime / 15;
         }
         if(winc != -1) {
             max_time += winc; 
 
-            if(2*wtime < winc) {
-                max_time = winc;
+            if(wtime < winc) {
+                max_time = winc-10;
             }
         }
     } else {
         if(btime != -1) {
-            max_time = btime / 20;
+            max_time = btime / 15;
         }
         if(binc != -1) {
             max_time += binc; 
 
-            if(2*btime < binc) {
-                max_time = binc;
+            if(btime < binc) {
+                max_time = binc-10;
             }
         }
     }
