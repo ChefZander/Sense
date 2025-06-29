@@ -60,6 +60,10 @@ int hce_material(const Board& board) {
         score += piece_value;
     }
 
+    // https://www.chessprogramming.org/Search_with_Random_Leaf_Values
+    // if this is cursed, dont yell at me, yell at A_randomnoob (Sirius)
+    score += (board.hash() % 8) - 4;
+
     return score;
 }
 int hce_pieces(const Board& board) {
@@ -72,8 +76,7 @@ int hce_pieces(const Board& board) {
     const int QUEEN_VALUE = 900;
 
     const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 5;
-    const double PAWN_ADVANCE_BONUS = 5;
-    const double OTHER_ADVANCE_BONUS = 3;
+    const double PAWN_ADVANCE_BONUS = 1;
 
     chess::Square white_king_sq = board.kingSq(Color::WHITE);
     chess::Square black_king_sq = board.kingSq(Color::BLACK);
@@ -97,7 +100,6 @@ int hce_pieces(const Board& board) {
         }
 
         // bonus for being closer to the enemy king
-        int bonus = 0;
         if (piece.type() != chess::PieceType::KING) { // Kings don't get proximity bonus to themselves
             int dx, dy;
             if (piece.color() == chess::Color::WHITE) {
@@ -105,19 +107,14 @@ int hce_pieces(const Board& board) {
                 dx = std::abs(sq.file() - black_king_sq.file());
                 dy = std::abs(sq.rank() - black_king_sq.rank());
                 int manhattan_distance = dx + dy;
-                bonus = (14 - manhattan_distance) * (1 / PROXIMITY_BONUS_PER_UNIT_DISTANCE) * piece_value;
+                piece_value += (1.0f / (14 - manhattan_distance)) * (1 / PROXIMITY_BONUS_PER_UNIT_DISTANCE);
             } else { // Black piece
                 // Calculate distance to white king
                 dx = std::abs(sq.file() - white_king_sq.file());
                 dy = std::abs(sq.rank() - white_king_sq.rank());
                 int manhattan_distance = dx + dy;
-                bonus = (14 - manhattan_distance) * (1 / PROXIMITY_BONUS_PER_UNIT_DISTANCE) * piece_value;
+                piece_value -= (14 - manhattan_distance) * (1 / PROXIMITY_BONUS_PER_UNIT_DISTANCE);
             }
-        }
-        if (piece.color() == chess::Color::WHITE) {
-            score += bonus;
-        } else {
-            score -= bonus;
         }
 
         // TODO: reward pawns for being more up the board
@@ -129,22 +126,124 @@ int hce_pieces(const Board& board) {
                 score -= (6 - rank) * PAWN_ADVANCE_BONUS;
             }
         }
-        else if (piece.type() != chess::PieceType::KING){
+
+        if(piece.color() == Color::BLACK) {
+            piece_value = -piece_value;
+        }
+
+        score += piece_value;
+    }
+
+    return score;
+}
+int hce_pieces_2(const Board& board) {
+    int score = 0;
+
+    // --- Tuned Material Values (in centipawns) ---
+    // These are slightly adjusted from common values to reflect relative strength
+    // and provide more granularity for tuning.
+    const int PAWN_VALUE = 100;
+    const int KNIGHT_VALUE = 300; // Slightly less than bishop, generally
+    const int BISHOP_VALUE = 325; // Often slightly better than knight due to long-range
+    const int ROOK_VALUE = 500;
+    const int QUEEN_VALUE = 900;
+
+    // --- Positional Factors Weights ---
+    // These weights determine how much each positional factor influences the total score.
+    // Adjust these carefully! Smaller numbers mean less impact.
+    const double PROXIMITY_BONUS_PER_UNIT_DISTANCE = 8.0; // Increased impact
+    const double PAWN_ADVANCE_BONUS = 12.0;               // Significantly increased impact
+    const double BISHOP_PAIR_BONUS = 30.0;                // Bishops work well together in open positions
+    const double TEMPO_BONUS = 10.0;                      // Bonus for the side to move (often important)
+
+    chess::Square white_king_sq = board.kingSq(Color::WHITE);
+    chess::Square black_king_sq = board.kingSq(Color::BLACK);
+
+    // Add tempo bonus for the side to move
+    if (board.sideToMove() == Color::WHITE) {
+        score += TEMPO_BONUS;
+    } else {
+        score -= TEMPO_BONUS;
+    }
+
+    // Initialize counts for bishop pair bonus
+    int white_bishops = 0;
+    int black_bishops = 0;
+
+    for (int i = 0; i < 64; ++i) {
+        chess::Square sq = static_cast<chess::Square>(i);
+        chess::Piece piece = board.at(sq);
+
+        if (piece == chess::Piece::NONE) continue;
+
+        // Material evaluation
+        int piece_value = 0;
+        switch (piece.type()) {
+            case PieceType(PieceType::PAWN):   piece_value = PAWN_VALUE;   break;
+            case PieceType(PieceType::KNIGHT): piece_value = KNIGHT_VALUE; break;
+            case PieceType(PieceType::BISHOP):
+                piece_value = BISHOP_VALUE;
+                if (piece.color() == Color::WHITE) {
+                    white_bishops++;
+                } else {
+                    black_bishops++;
+                }
+                break;
+            case PieceType(PieceType::ROOK):   piece_value = ROOK_VALUE;   break;
+            case PieceType(PieceType::QUEEN):  piece_value = QUEEN_VALUE;  break;
+            case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value
+            default: break;
+        }
+
+        // Proximity bonus for non-king pieces
+        if (piece.type() != chess::PieceType::KING) {
+            int dx, dy;
+            double proximity_score = 0;
+
+            if (piece.color() == chess::Color::WHITE) {
+                dx = std::abs(sq.file() - black_king_sq.file());
+                dy = std::abs(sq.rank() - black_king_sq.rank());
+                int manhattan_distance = dx + dy;
+                // Inverse relationship: closer means higher score. Max distance is 14.
+                // 14 - manhattan_distance gives a value from 0 (max dist) to 14 (min dist, king on same square)
+                // We want to reward being closer, so a higher value for smaller distance.
+                // Using 1.0f / (1.0f + manhattan_distance) or similar might be more stable.
+                // Let's try a linear bonus based on 'closeness'
+                proximity_score = (14 - manhattan_distance) * PROXIMITY_BONUS_PER_UNIT_DISTANCE;
+            } else { // Black piece
+                dx = std::abs(sq.file() - white_king_sq.file());
+                dy = std::abs(sq.rank() - white_king_sq.rank());
+                int manhattan_distance = dx + dy;
+                proximity_score = (14 - manhattan_distance) * PROXIMITY_BONUS_PER_UNIT_DISTANCE;
+            }
+            piece_value += static_cast<int>(proximity_score);
+        }
+
+        // Reward pawns for being more up the board
+        if (piece.type() == chess::PieceType::PAWN) {
             int rank = sq.rank(); // 0 for rank 1, 7 for rank 8
             if (piece.color() == chess::Color::WHITE) {
-                score += (rank - 1) * OTHER_ADVANCE_BONUS;
+                // Pawns on rank 2 (index 1) get 0 bonus, rank 3 (index 2) get 1*bonus, etc.
+                score += static_cast<int>((rank - 1) * PAWN_ADVANCE_BONUS);
             } else { // Black pawn
-                score -= (6 - rank) * OTHER_ADVANCE_BONUS;
+                // Pawns on rank 7 (index 6) get 0 bonus, rank 6 (index 5) get 1*bonus, etc.
+                score -= static_cast<int>((6 - rank) * PAWN_ADVANCE_BONUS);
             }
         }
-        else if (piece.type() == chess::PieceType::KING) { // Kings get a penalty for moving up the board
-            int rank = sq.rank();
-            if (piece.color() == chess::Color::WHITE) {
-                score -= (rank - 1) * OTHER_ADVANCE_BONUS;
-            } else { // Black pawn
-                score += (6 - rank) * OTHER_ADVANCE_BONUS;
-            }
+
+        if(piece.color() == Color::BLACK) {
+            piece_value = -piece_value;
         }
+
+        score += piece_value;
+    }
+
+    // Bishop pair bonus
+    if (white_bishops >= 2) {
+        score += static_cast<int>(BISHOP_PAIR_BONUS);
+    }
+    if (black_bishops >= 2) {
+        score -= static_cast<int>(BISHOP_PAIR_BONUS);
     }
 
     return score;
@@ -227,7 +326,7 @@ struct TranspositionTableEntry {
     TranspositionTableFlag flag;
 };
 
-const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
+const int TT_SIZE_DEFAULT = /*size mb: */64 * 1024 * 1024 / sizeof(TranspositionTableEntry);
 int TT_OCCUPIED = 0;
 std::vector<TranspositionTableEntry> transposition_table;
 
@@ -532,7 +631,7 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
     search.max_depth = max_depth;
     search.start_time = std::chrono::high_resolution_clock::now();
 
-    int aspiration_window_size = 50;
+    int aspiration_window_size = 5;
 
     Move bestMove = Move::NO_MOVE;
     int score = 0;
@@ -540,11 +639,11 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
         int currentAlpha = score - aspiration_window_size;
         int currentBeta = score + aspiration_window_size;
 
-        std::cout << "---------- Depth " << depth << " ----------" << std::endl;
+        //std::cout << "---------- Depth " << depth << " ----------" << std::endl;
         int iterScore = negamax(search, depth, 0, currentAlpha, currentBeta, true);
         // don't use search results from unfinished searches
         if (search.stop) {
-            std::cout << "> Search stopped." << std::endl;
+            //std::cout << "> Search stopped." << std::endl;
             break;
         }
 
@@ -645,10 +744,10 @@ void handleGo(std::istringstream& ss) {
             max_time = wtime / 25;
         }
         if(winc != -1) {
-            max_time += winc; 
+            max_time += winc * 0.9f; 
 
             if(wtime < winc) {
-                max_time = winc;
+                max_time = winc * 0.9f;
             }
         }
     } else {
@@ -656,10 +755,10 @@ void handleGo(std::istringstream& ss) {
             max_time = btime / 15;
         }
         if(binc != -1) {
-            max_time += binc; 
+            max_time += binc * 0.9f; 
 
             if(btime < binc) {
-                max_time = binc;
+                max_time = binc * 0.9f;
             }
         }
     }
