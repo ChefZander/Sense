@@ -120,14 +120,6 @@ int hce_pieces(const Board& board) {
             score -= bonus;
         }
 
-        // an attacked piece is effectively a lost piece (if your pieces are attacked, deduct their value)
-        if(board.isAttacked(sq, Color::WHITE)) {
-            score += piece_value/4;
-        }
-        else if(board.isAttacked(sq, Color::BLACK)) {
-            score -= piece_value/4;
-        }
-
         // TODO: reward pawns for being more up the board
         if (piece.type() == chess::PieceType::PAWN) {
             int rank = sq.rank(); // 0 for rank 1, 7 for rank 8
@@ -228,16 +220,15 @@ enum TranspositionTableFlag {
 };
 
 struct TranspositionTableEntry {
-    uint64_t hash_key;
+    uint64_t hash_key = 0;
     Move bestmove;
     int depth;
     int score;
     TranspositionTableFlag flag;
-
-    //TranspositionTableEntry() : score(0), depth(0), bestmove(Move::NO_MOVE) {}
 };
 
 const int TT_SIZE_DEFAULT = /*size mb: */32 * 1024 * 1024 / sizeof(TranspositionTableEntry);
+int TT_OCCUPIED = 0;
 std::vector<TranspositionTableEntry> transposition_table;
 
 // thanks aletheia
@@ -258,6 +249,9 @@ std::pair<bool, TranspositionTableEntry> probe_entry(uint64_t hash_key) {
 
 void store_entry(uint64_t hash_key, TranspositionTableEntry entry) {
     uint64_t index = table_index(hash_key);
+
+    if(transposition_table[index].hash_key == 0) TT_OCCUPIED++;
+
     transposition_table[index] = entry;
 }
 
@@ -287,9 +281,13 @@ struct SearchData {
     int max_time;
     int max_depth;
     int max_nodes;
+
+    int seldepth_ply = 0;
 };
 
 int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
+    if(search.seldepth_ply < ply) search.seldepth_ply = ply;
+
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
     if (search.max_time != -1 && elapsed_ms >= search.max_time) {
@@ -349,7 +347,9 @@ int qsearch(SearchData& search, int depth, int ply, int alpha, int beta) {
     return bestScore;
 }
 
-int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
+int negamax(SearchData& search, int depth, int ply, int alpha, int beta, bool can_null_move, bool silent) {
+    if(search.seldepth_ply < ply) search.seldepth_ply = ply;
+
     auto current_time = std::chrono::high_resolution_clock::now();
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
     if (search.max_time != -1 && elapsed_ms >= search.max_time) {
@@ -398,11 +398,48 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
                 return entry.score;
     }
 
-    Move bestMove = Move::NO_MOVE;
-    int bestScore = -NUMERIC_MAX;
-    int original_alpha = alpha; // for TT
 
     std::vector<Move> moves = sortMovesMVVLVA(movelist, search.board, entry.bestmove);
+    Move bestMove = Move::NO_MOVE;
+    int bestScore = -NUMERIC_MAX;
+
+    int original_alpha = alpha; // for TT
+
+    if (can_null_move && !search.board.inCheck() && depth >= 3 && ply != 0) {
+        search.board.makeNullMove();
+        int score = -negamax(search, 3, ply + 1, -beta, -(beta - 1), false, true);
+        search.board.unmakeNullMove();
+        if (score >= beta) {
+            TranspositionTableEntry newEntry = TranspositionTableEntry();
+            newEntry.hash_key = zobrist;
+            newEntry.score = beta;
+            newEntry.depth = depth;
+            newEntry.bestmove = bestMove;
+
+            if(beta <= original_alpha) {
+                newEntry.flag = TranspositionTableFlag::UPPER;
+            }
+            else {
+                newEntry.flag = TranspositionTableFlag::EXACT;
+            }
+
+            store_entry(zobrist, newEntry);
+
+            return beta;
+        }
+    }
+
+    // extending check moves
+    if(board.inCheck())
+        depth++;
+
+    // extending easy positions for speed
+    if(moves.size() < 5)
+        depth++;
+
+    // reducing complex positions for speed
+    if(moves.size() > 35)
+        depth--;
 
     for (Move move : moves) {
         search.board.makeMove(move);
@@ -410,13 +447,13 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         // ply increases with every move that is made
         int score = 0;
         if(bestMove == Move::NO_MOVE){
-            score = -negamax(search, depth - 1, ply + 1, -beta, -alpha);
+            score = -negamax(search, depth - 1, ply + 1, -beta, -alpha, true, silent);
         }
         else {
-            score = -negamax(search, depth - 1, ply + 1, -alpha - 1, -alpha);
+            score = -negamax(search, depth - 1, ply + 1, -alpha - 1, -alpha, true, silent);
 
             if (score > alpha && beta - alpha > 1) {
-                score = -negamax(search, depth - 1, ply + 1, -beta, -alpha);
+                score = -negamax(search, depth - 1, ply + 1, -beta, -alpha, true, silent);
             }
         }
         search.board.unmakeMove(move);
@@ -432,7 +469,38 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
             bestMove = move;
             // store the best move at the root for use outside of the search
             if (ply == 0) {
-                search.best_root = move;
+                if(move != Move::NO_MOVE)
+                    search.best_root = move;
+
+                auto current_time = std::chrono::high_resolution_clock::now();
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - search.start_time).count();
+                int nps = nodes;
+                if((elapsed_ms / 1000) != 0) {
+                    nps = static_cast<int>((nodes / (elapsed_ms / 1000)));
+                }
+
+                std::string score_string;
+                if (score > NUMERIC_MAX - search.max_depth) {
+                    score_string = " score mate " + std::to_string(((NUMERIC_MAX - score) + 1) / 2);
+                }
+                else if (score < -NUMERIC_MAX + search.max_depth) {
+                    score_string = " score mate -" + std::to_string((score + NUMERIC_MAX) / 2);
+                }
+                else {
+                    score_string = " score cp " + std::to_string(score);
+                }
+
+                if(!silent)
+                    std::cout << "info"
+                                << " depth " << depth
+                                << " seldepth " << search.seldepth_ply
+                                << " nodes " << nodes
+                                << " time " << elapsed_ms
+                                << score_string
+                                << " nps " << nps
+                                << " hashfull " << std::floor((static_cast<double>(TT_OCCUPIED) / TT_SIZE_DEFAULT) * 1000)
+                                //<< " pv" << pv_string
+                                << std::endl;
             }
 
             if(score > alpha) {
@@ -462,7 +530,6 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
     }
 
     store_entry(zobrist, newEntry);
-
     return bestScore;
 }
 
@@ -516,21 +583,21 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
         int currentAlpha = score - aspiration_window_size;
         int currentBeta = score + aspiration_window_size;
 
-        int iterScore = negamax(search, depth, 0, currentAlpha, currentBeta);
+        int iterScore = negamax(search, depth, 0, currentAlpha, currentBeta, true, silent);
         // don't use search results from unfinished searches
         if (search.stop) {
             break;
         }
 
         if (score <= currentAlpha) {
-            std::cout << "info string asp window failed low." << std::endl;
+            //std::cout << "info string asp window failed low." << std::endl;
             currentBeta = currentAlpha;
             currentAlpha = -INFINITY;
             depth--;
             continue; // reset depth and restart search
         }
         else if (score >= currentBeta) {
-            std::cout << "info string asp window failed high." << std::endl;
+            //std::cout << "info string asp window failed high." << std::endl;
             currentAlpha = currentBeta;
             currentBeta = INFINITY;
             depth--;
@@ -562,11 +629,13 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
         if(!silent)
             std::cout << "info"
                         << " depth " << depth
+                        << " seldepth " << search.seldepth_ply
                         << " nodes " << nodes
                         << " time " << elapsed_ms
                         << score_string
                         << " nps " << nps
-                        << " pv " << uci::moveToUci(bestMove)
+                        << " hashfull " << std::floor((static_cast<double>(TT_OCCUPIED) / TT_SIZE_DEFAULT) * 1000)
+                        //<< " pv" << pv_string
                         << std::endl;
     }
     return bestMove;
@@ -665,6 +734,26 @@ void runTests() {
     }
     else {
         std::cout << "TEST: Mate in 1: FAILED" << std::endl;
+    }
+
+    // Test 2
+    board.setFen("5rk1/1p2bppp/5n2/3bp3/P7/3n1P2/1r4PP/RNK3N1 w - - 3 20");
+    Move test2 = engineGo(10, -1, -1, true);
+    if(test2 != Move::NO_MOVE) {
+        std::cout << "TEST: Invalid move 1: PASSED - " << uci::moveToUci(test2) << std::endl;
+    }
+    else {
+        std::cout << "TEST: Invalid move 1: FAILED" << std::endl;
+    }
+
+    // Test 3
+    board.setFen("B7/8/5p2/R5kp/8/P3P3/5PPP/4R1K1 b - - 2 25");
+    Move test3 = engineGo(10, -1, -1, true);
+    if(test3 != Move::NO_MOVE) {
+        std::cout << "TEST: Invalid move 2: PASSED - " << uci::moveToUci(test3) << std::endl;
+    }
+    else {
+        std::cout << "TEST: Invalid move 2: FAILED" << std::endl;
     }
 }
 
