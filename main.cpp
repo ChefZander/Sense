@@ -263,6 +263,9 @@ void store_entry(uint64_t hash_key, TranspositionTableEntry entry) {
 
 int evaluate(const chess::Board& board) {
     int score = 0;
+    if (board.isRepetition() || board.isInsufficientMaterial() || board.isHalfMoveDraw()) {
+        return 0;
+    }
     if(use_nn) {
         score = sensenet::predict(sensenet::boardToBitboards(board));
     }
@@ -405,7 +408,17 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta) {
         search.board.makeMove(move);
         nodes++;
         // ply increases with every move that is made
-        int score = -negamax(search, depth - 1, ply + 1, -beta, -alpha);
+        int score = 0;
+        if(bestMove == Move::NO_MOVE){
+            score = -negamax(search, depth - 1, ply + 1, -beta, -alpha);
+        }
+        else {
+            score = -negamax(search, depth - 1, ply + 1, -alpha - 1, -alpha);
+
+            if (score > alpha && beta - alpha > 1) {
+                score = -negamax(search, depth - 1, ply + 1, -beta, -alpha);
+            }
+        }
         search.board.unmakeMove(move);
 
         // exit the search
@@ -495,14 +508,35 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
     search.max_depth = max_depth;
     search.start_time = std::chrono::high_resolution_clock::now();
 
+    int aspiration_window_size = 50;
+
     Move bestMove = Move::NO_MOVE;
     int score = 0;
     for (int depth = 1; depth <= max_depth; depth++) {
-        int iterScore = negamax(search, depth, 0, -NUMERIC_MAX, NUMERIC_MAX);
+        int currentAlpha = score - aspiration_window_size;
+        int currentBeta = score + aspiration_window_size;
+
+        int iterScore = negamax(search, depth, 0, currentAlpha, currentBeta);
         // don't use search results from unfinished searches
         if (search.stop) {
             break;
         }
+
+        if (score <= currentAlpha) {
+            std::cout << "info string asp window failed low." << std::endl;
+            currentBeta = currentAlpha;
+            currentAlpha = -INFINITY;
+            depth--;
+            continue; // reset depth and restart search
+        }
+        else if (score >= currentBeta) {
+            std::cout << "info string asp window failed high." << std::endl;
+            currentAlpha = currentBeta;
+            currentBeta = INFINITY;
+            depth--;
+            continue; // reset depth and restart search
+        }
+        // else branch not needed, simply continue
 
         bestMove = search.best_root;
         score = iterScore;
