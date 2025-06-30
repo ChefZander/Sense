@@ -25,6 +25,92 @@ bool is_capture_move(const chess::Move& move, const chess::Board& board) {
     return (targetPiece != Piece::NONE) && (targetPiece.color() != board.sideToMove());
 }
 
+// --- Piece-Square Tables ---
+
+// Pawn PST
+std::array<int, 64> PAWN_PST = {
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10,-20,-20, 10, 10,  5,
+    5, -5,-10,  0,  0,-10, -5,  5,
+    0,  0,  0, 20, 20,  0,  0,  0,
+    5,  5, 10, 25, 25, 10,  5,  5,
+   10, 10, 20, 30, 30, 20, 10, 10,
+   50, 50, 50, 50, 50, 50, 50, 50,
+    0,  0,  0,  0,  0,  0,  0,  0
+};
+
+// Knight PST
+std::array<int, 64> KNIGHT_PST = {
+   -50,-40,-30,-30,-30,-30,-40,-50,
+   -40,-20,  0,  0,  0,  0,-20,-40,
+   -30,  0, 10, 15, 15, 10,  0,-30,
+   -30,  5, 15, 20, 20, 15,  5,-30,
+   -30,  0, 15, 20, 20, 15,  0,-30,
+   -30,  5, 10, 15, 15, 10,  5,-30,
+   -40,-20,  0,  5,  5,  0,-20,-40,
+   -50,-40,-30,-30,-30,-30,-40,-50
+};
+
+// Bishop PST
+std::array<int, 64> BISHOP_PST = {
+   -20,-10,-10,-10,-10,-10,-10,-20,
+   -10,  0,  0,  0,  0,  0,  0,-10,
+   -10,  0,  5, 10, 10,  5,  0,-10,
+   -10,  5,  5, 10, 10,  5,  5,-10,
+   -10,  0, 10, 10, 10, 10,  0,-10,
+   -10, 10, 10, 10, 10, 10, 10,-10,
+   -10,  5,  0,  0,  0,  0,  5,-10,
+   -20,-10,-10,-10,-10,-10,-10,-20
+};
+
+// Rook PST
+std::array<int, 64> ROOK_PST = {
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10, 10, 10, 10, 10,  5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+    0,  0,  0,  5,  5,  0,  0,  0
+};
+
+// Queen PST
+std::array<int, 64> QUEEN_PST = {
+   -20,-10,-10, -5, -5,-10,-10,-20,
+   -10,  0,  0,  0,  0,  0,  0,-10,
+   -10,  0,  5,  5,  5,  5,  0,-10,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+     0,  0,  5,  5,  5,  5,  0, -5,
+   -10,  5,  5,  5,  5,  5,  0,-10,
+   -10,  0,  5,  0,  0,  0,  0,-10,
+   -20,-10,-10, -5, -5,-10,-10,-20
+};
+
+// King PST
+std::array<int, 64> KING_PST_MIDGAME = {
+   -30,-40,-40,-50,-50,-40,-40,-30,
+   -30,-40,-40,-50,-50,-40,-40,-30,
+   -30,-40,-40,-50,-50,-40,-40,-30,
+   -30,-40,-40,-50,-50,-40,-40,-30,
+   -20,-30,-30,-40,-40,-30,-30,-20,
+   -10,-20,-20,-20,-20,-20,-20,-10,
+    20, 20,  0,  0,  0,  0, 20, 20,
+    20, 30, 10,  0,  0, 10, 30, 20
+};
+
+// King PST
+std::array<int, 64> KING_PST_ENDGAME = {
+   -50,-40,-30,-20,-20,-30,-40,-50,
+   -30,-20,-10,  0,  0,-10,-20,-30,
+   -30,-10, 20, 30, 30, 20,-10,-30,
+   -30,-10, 30, 40, 40, 30,-10,-30,
+   -30,-10, 30, 40, 40, 30,-10,-30,
+   -30,-10, 20, 30, 30, 20,-10,-30,
+   -30,-20,-10,  0,  0,-10,-20,-30,
+   -50,-40,-30,-20,-20,-30,-40,-50
+};
+
 // --- Evaluation Functions ---
 int hce_material(const Board& board) {
     int score = 0;
@@ -35,6 +121,15 @@ int hce_material(const Board& board) {
     const int ROOK_VALUE = 500;
     const int QUEEN_VALUE = 900;
 
+    std::array<int, 64>& current_king_pst = KING_PST_MIDGAME;
+
+    int piece_material = board.pieces(PieceType(PieceType::KNIGHT)).count()
+                        + board.pieces(PieceType(PieceType::BISHOP)).count()
+                        + board.pieces(PieceType(PieceType::ROOK)).count();
+
+    if(piece_material <= 2)
+        current_king_pst = KING_PST_ENDGAME;
+
     for (int i = 0; i < 64; ++i) {
         chess::Square sq = static_cast<chess::Square>(i);
         chess::Piece piece = board.at(sq);
@@ -43,14 +138,33 @@ int hce_material(const Board& board) {
 
         // material evaluation
         int piece_value = 0;
+        int current_sq_for_pst = sq.index();
+
+        if (piece.color() == chess::Color::BLACK) {
+            current_sq_for_pst = i ^ 56; //flip
+        }
+
         switch (piece.type()) {
-            case PieceType(PieceType::PAWN):   piece_value = PAWN_VALUE;   break;
-            case PieceType(PieceType::KNIGHT): piece_value = KNIGHT_VALUE; break;
-            case PieceType(PieceType::BISHOP): piece_value = BISHOP_VALUE; break;
-            case PieceType(PieceType::ROOK):   piece_value = ROOK_VALUE;   break;
-            case PieceType(PieceType::QUEEN):  piece_value = QUEEN_VALUE;  break;
-            case PieceType(PieceType::KING):   piece_value = 0;            break; // King has no material value in this eval
-            default: break;
+            case PieceType(PieceType::PAWN):
+                piece_value = PAWN_VALUE + PAWN_PST[current_sq_for_pst];
+                break;
+            case PieceType(PieceType::KNIGHT):
+                piece_value = KNIGHT_VALUE + KNIGHT_PST[current_sq_for_pst];
+                break;
+            case PieceType(PieceType::BISHOP):
+                piece_value = BISHOP_VALUE + BISHOP_PST[current_sq_for_pst];
+                break;
+            case PieceType(PieceType::ROOK):
+                piece_value = ROOK_VALUE + ROOK_PST[current_sq_for_pst];
+                break;
+            case PieceType(PieceType::QUEEN):
+                piece_value = QUEEN_VALUE + QUEEN_PST[current_sq_for_pst];
+                break;
+            case PieceType(PieceType::KING):
+                piece_value = current_king_pst[current_sq_for_pst];
+                break;
+            default:
+                break;
         }
 
         if(piece.color() == Color::BLACK) {
@@ -505,8 +619,8 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta, bool ca
 
     int original_alpha = alpha; // for TT
 
-    if (can_null_move && !search.board.inCheck() && depth >= 3 && ply != 0) {
-        int r = 3; // nmp reduction
+    int r = 3; // nmp reduction
+    if (can_null_move && !search.board.inCheck() && depth >= r && ply != 0) {
         search.board.makeNullMove();
         int score = -negamax(search, depth - r, ply + 1, -beta, -(beta - 1), false);
         search.board.unmakeNullMove();
@@ -519,12 +633,8 @@ int negamax(SearchData& search, int depth, int ply, int alpha, int beta, bool ca
         can_null_move = true;
 
     // extending check moves
-    if(search.board.inCheck() || moves.size() == 1 || moves.size() < 5)
+    if(search.board.inCheck())
         depth++;
-
-    // reducing complex positions for speed
-    if(moves.size() > 35)
-        depth--;
 
     for (Move move : moves) {
         search.board.makeMove(move);
@@ -632,7 +742,7 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
     search.max_depth = max_depth;
     search.start_time = std::chrono::high_resolution_clock::now();
 
-    int aspiration_window_size = 5;
+    int aspiration_window_size = 50;
 
     Move bestMove = Move::NO_MOVE;
     int score = 0;
@@ -694,6 +804,7 @@ Move engineGo(int max_depth, int max_nodes, int max_time, bool silent) {
                         << score_string
                         << " nps " << nps
                         << " hashfull " << std::floor((static_cast<double>(TT_OCCUPIED) / TT_SIZE_DEFAULT) * 1000)
+                        << " currmove " << uci::moveToUci(bestMove)
                         //<< " pv" << pv_string
                         << std::endl;
     }
@@ -785,7 +896,7 @@ void runTests() {
     }
     // Test 1
     board.setFen("4k3/2r4p/1pp1BQ2/4p3/p3P3/4P3/5KPP/3R4 w - - 0 42");
-    Move test1 = engineGo(5, -1, -1, true);
+    Move test1 = engineGo(5, -1, -1, false);
     if(test1 == uci::uciToMove(board, "d1d8")) {
         std::cout << "TEST: Mate in 1: PASSED" << std::endl;
     }
@@ -805,14 +916,14 @@ void runTests() {
 
     // Test 3
     board.setFen("B7/8/5p2/R5kp/8/P3P3/5PPP/4R1K1 b - - 2 25");
-    Move test3 = engineGo(99, -1, 1000, false);
+    Move test3 = engineGo(99, -1, 1000, true);
     if(test3 != Move::NO_MOVE) {
         std::cout << "TEST: Invalid move 2 time limit: PASSED - " << uci::moveToUci(test3) << std::endl;
     }
     else {
         std::cout << "TEST: Invalid move 2 time limit: FAILED" << std::endl;
     }
-    Move test4 = engineGo(10, -1, -1, false);
+    Move test4 = engineGo(10, -1, -1, true);
     if(test4 != Move::NO_MOVE) {
         std::cout << "TEST: Invalid move 2 depth limit: PASSED - " << uci::moveToUci(test4) << std::endl;
     }
@@ -854,6 +965,8 @@ int main(int argc, char* argv[]) {
             handlePosition(iss);
         } else if (command == "test") {
             runTests();
+        } else if (command == "eval") {
+            std::cout << "Evaluation for this position: " << evaluate(board) << std::endl;
         } else if (command == "go") {
             handleGo(iss);
         } else if (command == "quit") {
