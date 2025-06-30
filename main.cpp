@@ -305,6 +305,7 @@ std::vector<chess::Move> sortMovesMVVLVA(const chess::Movelist& moves, const che
         sorted_moves.push_back(move);
     }
 
+    // TODO: UPDATE THIS TO AN ENTIRELY DIFFRENT IMPL
     std::sort(sorted_moves.begin(), sorted_moves.end(), [&](const chess::Move& a, const chess::Move& b) {
         return compareMovesMVVLVA(a, b, board, ttmove);
     });
